@@ -91,7 +91,11 @@ export async function registerRoutes(
       // Parse RAM/Disk strings to bytes (simplified helper)
       const parseToBytes = (s: string) => {
         const m = s.match(/^(\d+)([GM])$/i);
-        if (!m) return 0;
+        if (!m) {
+          // Fallback for plain numbers, default to GB
+          if (/^\d+$/.test(s)) return parseInt(s) * 1024 * 1024 * 1024;
+          return 0;
+        }
         const n = parseInt(m[1]);
         return m[2].toUpperCase() === 'G' ? n * 1024 * 1024 * 1024 : n * 1024 * 1024;
       };
@@ -137,7 +141,12 @@ export async function registerRoutes(
         
         // Stop and remove old container
         try {
-          await execAsync(`docker stop ${containerName} && docker rm ${containerName}`);
+          await execAsync(`docker stop ${containerName}`);
+        } catch (e) {
+          console.error(`Error stopping container ${containerName} during update:`, e);
+        }
+        try {
+          await execAsync(`docker rm ${containerName}`);
         } catch (e) {
           console.error(`Error removing container ${containerName} during update:`, e);
         }

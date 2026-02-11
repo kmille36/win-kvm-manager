@@ -36,24 +36,34 @@ export default function VmDetail() {
   // Settings form
   const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true });
   const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema.extend({ cpuCores: z.coerce.number(), customCommand: z.string().nullable() })),
-    defaultValues: { ramSize: "", cpuCores: 2, diskSize: "", customCommand: "" }
+    resolver: zodResolver(formSchema.extend({ 
+      cpuCores: z.coerce.number(), 
+      ramSize: z.coerce.number(),
+      diskSize: z.coerce.number(),
+      customCommand: z.string().nullable() 
+    })),
+    defaultValues: { ramSize: 4, cpuCores: 2, diskSize: 64, customCommand: "" }
   });
 
   // Hydrate form when data loads
   useEffect(() => {
     if (vm) {
       form.reset({
-        ramSize: vm.ramSize,
+        ramSize: parseInt(String(vm.ramSize)) || 4,
         cpuCores: vm.cpuCores,
-        diskSize: vm.diskSize,
+        diskSize: parseInt(String(vm.diskSize)) || 64,
         customCommand: vm.customCommand || "",
       });
     }
   }, [vm, form]);
 
   const watchAll = form.watch();
-  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 -e VERSION=${vm.version} -e RAM_SIZE=${watchAll.ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize} -v ${vm.storagePath}:/storage --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows` : "";
+  const rawRamSize = watchAll.ramSize || "";
+  const rawDiskSize = watchAll.diskSize || "";
+  const ramSize = /^\d+$/.test(rawRamSize) ? `${rawRamSize}G` : rawRamSize;
+  const diskSize = /^\d+$/.test(rawDiskSize) ? `${rawDiskSize}G` : rawDiskSize;
+  
+  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 -e VERSION=${vm.version} -e RAM_SIZE=${ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${diskSize} -v ${vm.storagePath}:/storage --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows` : "";
 
   useEffect(() => {
     const currentCommand = form.getValues('customCommand');
@@ -78,7 +88,10 @@ export default function VmDetail() {
   };
 
   const onUpdateSubmit = (values: z.infer<typeof formSchema>) => {
-    updateVm.mutate({ id, ...values });
+    // Ensure G is added automatically
+    const ramSize = `${values.ramSize}G`;
+    const diskSize = `${values.diskSize}G`;
+    updateVm.mutate({ id, ...values, ramSize, diskSize });
   };
 
   return (
@@ -284,11 +297,27 @@ export default function VmDetail() {
                             name="ramSize"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Memory</FormLabel>
+                                <FormLabel>Memory (GB)</FormLabel>
                                 <FormControl>
                                   <div className="relative">
                                     <Settings className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input className="pl-9" {...field} />
+                                    <Input type="number" className="pl-9" {...field} />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="diskSize"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Disk Size (GB)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <HardDrive className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input type="number" className="pl-9" {...field} />
                                   </div>
                                 </FormControl>
                                 <FormMessage />
@@ -297,30 +326,30 @@ export default function VmDetail() {
                           />
                         </div>
 
-                        <FormField
-                          control={form.control}
-                          name="customCommand"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Custom Docker Command (Optional)</FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Monitor className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                  <textarea 
-                                    className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-9 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 font-mono"
-                                    placeholder={generatedCommand}
-                                    {...field}
-                                    value={field.value || ""}
-                                  />
-                                </div>
-                              </FormControl>
-                              <FormDescription>
-                                If provided, this command will be used instead of the generated one.
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                          <FormField
+                            control={form.control}
+                            name="customCommand"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Custom Docker Command (Generated)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Monitor className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                    <textarea 
+                                      className="flex min-h-[120px] w-full rounded-md border border-input bg-muted/50 px-9 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 font-mono resize-none"
+                                      readOnly
+                                      {...field}
+                                      value={field.value || ""}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormDescription>
+                                  This is the generated command that will be used to run the VM.
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
                         <div className="flex justify-end pt-4">
                           <Button type="submit" disabled={updateVm.isPending}>

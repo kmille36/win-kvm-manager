@@ -85,12 +85,12 @@ export function CreateVmDialog() {
       if (!hostStats) return true;
       return val <= hostStats.cpu.cores;
     }, { message: `Cannot exceed host CPU cores (${hostStats?.cpu.cores || 'loading...'})` }),
-    ramSize: z.coerce.number().refine(val => {
+    ramSize: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
       const requested = val * 1024 * 1024 * 1024;
       return requested <= hostStats.mem.free;
     }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
-    diskSize: z.coerce.number().refine(val => {
+    diskSize: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
       const requested = val * 1024 * 1024 * 1024;
       return requested <= hostStats.disk.free;
@@ -104,9 +104,9 @@ export function CreateVmDialog() {
     defaultValues: {
       name: "",
       version: "11",
-      ramSize: 4 as any,
+      ramSize: 4,
       cpuCores: 2,
-      diskSize: 64 as any,
+      diskSize: 64,
       storagePath: "./windows",
       status: "stopped",
       webPort: 8006,
@@ -147,10 +147,13 @@ export function CreateVmDialog() {
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     // Inject the random ports into the submission
+    const ramSize = `${values.ramSize}G`;
+    const diskSize = `${values.diskSize}G`;
+    
     createVm.mutate({
       ...values,
-      ramSize: `${values.ramSize}G`,
-      diskSize: `${values.diskSize}G`,
+      ramSize,
+      diskSize,
       webPort: randomPorts.web,
       rdpPort: randomPorts.rdp
     }, {
@@ -245,11 +248,11 @@ export function CreateVmDialog() {
                 name="ramSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>RAM Size (GB)</FormLabel>
+                    <FormLabel>RAM Size</FormLabel>
                     <FormControl>
-                      <Input type="number" placeholder="4" {...field} />
+                      <Input placeholder="4" {...field} />
                     </FormControl>
-                    <FormDescription>Memory to allocate</FormDescription>
+                    <FormDescription>Memory to allocate in GB (e.g. 4 for 4GB)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -261,11 +264,11 @@ export function CreateVmDialog() {
                 name="diskSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Disk Size (GB)</FormLabel>
+                    <FormLabel>Disk Size</FormLabel>
                     <FormControl>
-                      <Input type="number" placeholder="64" {...field} />
+                      <Input placeholder="64" {...field} />
                     </FormControl>
-                    <FormDescription>Allocated C: drive space</FormDescription>
+                    <FormDescription>Allocated C: drive space in GB (e.g. 64 for 64GB)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
