@@ -34,25 +34,29 @@ export default function VmDetail() {
   const updateVm = useUpdateVm();
 
   // Settings form
-  const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true });
+  const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true, username: true, password: true });
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema.extend({ 
       cpuCores: z.coerce.number(), 
       ramSize: z.coerce.number(),
       diskSize: z.coerce.number(),
-      customCommand: z.string().nullable() 
+      customCommand: z.string().nullable(),
+      username: z.string().min(1, "Username is required"),
+      password: z.string().min(1, "Password is required")
     })),
-    defaultValues: { ramSize: 4, cpuCores: 2, diskSize: 64, customCommand: "" }
+    defaultValues: { ramSize: "4", cpuCores: 2, diskSize: "64", customCommand: "", username: "bill", password: "gates" }
   });
 
   // Hydrate form when data loads
   useEffect(() => {
     if (vm) {
       form.reset({
-        ramSize: parseInt(String(vm.ramSize)) || 4,
+        ramSize: String(vm.ramSize).replace("G", "") || "4",
         cpuCores: vm.cpuCores,
-        diskSize: parseInt(String(vm.diskSize)) || 64,
+        diskSize: String(vm.diskSize).replace("G", "") || "64",
         customCommand: vm.customCommand || "",
+        username: vm.username || "bill",
+        password: vm.password || "gates",
       });
     }
   }, [vm, form]);
@@ -63,7 +67,7 @@ export default function VmDetail() {
   const ramSize = /^\d+$/.test(rawRamSize) ? `${rawRamSize}G` : rawRamSize;
   const diskSize = /^\d+$/.test(rawDiskSize) ? `${rawDiskSize}G` : rawDiskSize;
   
-  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 -e VERSION=${vm.version} -e RAM_SIZE=${ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${diskSize} -v ${vm.storagePath}:/storage --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows` : "";
+  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 -e VERSION=${vm.version} -e RAM_SIZE=${ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${diskSize} -e USERNAME="${watchAll.username || "bill"}" -e PASSWORD="${watchAll.password || "gates"}" -v ${vm.storagePath}:/storage --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows` : "";
 
   useEffect(() => {
     const currentCommand = form.getValues('customCommand');
@@ -318,6 +322,38 @@ export default function VmDetail() {
                                   <div className="relative">
                                     <HardDrive className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input type="number" className="pl-9" {...field} />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="username"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Username</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Monitor className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input className="pl-9" {...field} value={field.value || ""} />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="password"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Password</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <Settings className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input type="password" className="pl-9" {...field} value={field.value || ""} />
                                   </div>
                                 </FormControl>
                                 <FormMessage />

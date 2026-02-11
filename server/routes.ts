@@ -117,6 +117,11 @@ export async function registerRoutes(
       }
 
       const vm = await storage.createVm(input);
+      
+      // If no custom command was provided, it was generated in CreateVmDialog and sent in the request.
+      // However, we need to make sure the one stored in DB is correct.
+      // The frontend sends input.customCommand which is the generated one.
+      
       res.status(201).json(vm);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -262,7 +267,9 @@ export async function registerRoutes(
         if (!vm.webPort || !vm.rdpPort) {
           await storage.updateVm(id, {
             webPort: webHostPort,
-            rdpPort: rdpHostPort
+            rdpPort: rdpHostPort,
+            username: vm.username || 'bill',
+            password: vm.password || 'gates'
           });
         }
 
@@ -273,13 +280,16 @@ export async function registerRoutes(
             return `-p ${getHostPort()}:${port}`;
           }).join(' ');
 
+          const username = vm.username || 'bill';
+          const password = vm.password || 'gates';
+
           command = `docker run -d --name ${containerName} ` +
             `-e "VERSION=${vm.version}" ` +
             `-e RAM_SIZE=${vm.ramSize} ` +
             `-e CPU_CORES=${vm.cpuCores} ` +
             `-e DISK_SIZE=${vm.diskSize} ` +
-            `-e USERNAME="${vm.username || 'bill'}" ` +
-            `-e PASSWORD="${vm.password || 'gates'}" ` +
+            `-e USERNAME="${username}" ` +
+            `-e PASSWORD="${password}" ` +
             `-p ${webHostPort}:8006 ` +
             `-p ${rdpHostPort}:3389 ` +
             `${customPortMappings} ` +
@@ -291,6 +301,15 @@ export async function registerRoutes(
           if (command.includes('-it')) command = command.replace('-it', '-d');
           if (!command.includes('--name')) {
             command = command.replace('docker run', `docker run --name ${containerName}`);
+          }
+          // Ensure username and password are present in the command if it's based on the template
+          if (!command.includes('USERNAME=')) {
+            const username = vm.username || 'bill';
+            command = command.replace('docker run ', `docker run -e USERNAME="${username}" `);
+          }
+          if (!command.includes('PASSWORD=')) {
+            const password = vm.password || 'gates';
+            command = command.replace('docker run ', `docker run -e PASSWORD="${password}" `);
           }
         }
 

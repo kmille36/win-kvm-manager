@@ -79,7 +79,7 @@ export function CreateVmDialog() {
   // Extend the base schema to coerce numbers from string inputs
   const formSchema = insertVmSchema.extend({
     name: z.string()
-      .min(1, "VM name is required")
+      .min(2, "Name must be at least 2 characters")
       .regex(/^[a-zA-Z0-9-]+$/, "Name can only contain letters, numbers, and hyphens (no spaces or special characters)"),
     cpuCores: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
@@ -138,7 +138,11 @@ export function CreateVmDialog() {
   const customPortMappings = (watchAll.customPorts || []).map((port, idx) => `-p ${randomPorts.custom[idx]}:${port}`).join(' ');
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
-  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${watchAll.username || 'bill'}" -e PASSWORD="${watchAll.password || 'gates'}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows`;
+  
+  const username = watchAll.username || 'bill';
+  const password = watchAll.password || 'gates';
+  
+  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${username}" -e PASSWORD="${password}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows`;
 
   // Sync the generated command to the form's customCommand field
   useEffect(() => {
@@ -155,7 +159,9 @@ export function CreateVmDialog() {
       ramSize,
       diskSize,
       webPort: randomPorts.web,
-      rdpPort: randomPorts.rdp
+      rdpPort: randomPorts.rdp,
+      username: values.username || "bill",
+      password: values.password || "gates"
     }, {
       onSuccess: () => {
         setOpen(false);
