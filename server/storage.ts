@@ -7,6 +7,7 @@ const DATA_FILE = join(process.cwd(), "vms.json");
 export interface IStorage {
   getVms(): Promise<Vm[]>;
   getVm(id: number): Promise<Vm | undefined>;
+  getVmByName(name: string): Promise<Vm | undefined>;
   createVm(vm: InsertVm): Promise<Vm>;
   updateVm(id: number, vm: UpdateVmRequest): Promise<Vm>;
   deleteVm(id: number): Promise<void>;
@@ -48,6 +49,12 @@ export class JsonStorage implements IStorage {
     } catch (err) {
       console.error("Failed to save JSON database:", err);
     }
+  }
+
+  async getVmByName(name: string): Promise<Vm | undefined> {
+    const vms = Array.from(this.vms.values());
+    console.log(`Checking duplicate for name: "${name}". Current VMs:`, vms.map(v => v.name));
+    return vms.find(vm => vm.name.toLowerCase() === name.toLowerCase());
   }
 
   async getVms(): Promise<Vm[]> {

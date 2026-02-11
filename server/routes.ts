@@ -79,6 +79,12 @@ export async function registerRoutes(
       // Validate with schema and ensure customPorts is handled
       const input = api.vms.create.input.parse(req.body);
 
+      // Check for duplicate VM name
+      const existingVm = await storage.getVmByName(input.name);
+      if (existingVm) {
+        return res.status(400).json({ message: `A VM with the name "${input.name}" already exists.` });
+      }
+
       // Backend validation for host resources
       const [cpu, mem, disk] = await Promise.all([
         si.cpu(),
@@ -131,6 +137,41 @@ export async function registerRoutes(
       const oldVm = await storage.getVm(id);
       if (!oldVm) {
         return res.status(404).json({ message: 'VM not found' });
+      }
+
+      // Backend validation for host resources (only if they are being updated)
+      if (input.cpuCores || input.ramSize || input.diskSize) {
+        const [cpu, mem, disk] = await Promise.all([
+          si.cpu(),
+          si.mem(),
+          si.fsSize()
+        ]);
+
+        const mainDisk = disk[0] || { available: 0 };
+        
+        const parseToBytes = (s: string) => {
+          const m = s.match(/^(\d+)([GM])$/i);
+          if (!m) {
+            if (/^\d+$/.test(s)) return parseInt(s) * 1024 * 1024 * 1024;
+            return 0;
+          }
+          const n = parseInt(m[1]);
+          return m[2].toUpperCase() === 'G' ? n * 1024 * 1024 * 1024 : n * 1024 * 1024;
+        };
+
+        if (input.cpuCores && input.cpuCores > cpu.cores) {
+          return res.status(400).json({ message: `Insufficient CPU cores (available: ${cpu.cores})` });
+        }
+        
+        // When updating, we should technically account for the resources already assigned to this VM 
+        // if the VM is running, but since the container is stopped/removed during update, 
+        // the resources will be "freed" anyway.
+        if (input.ramSize && parseToBytes(input.ramSize) > mem.free) {
+          return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024)}MB)` });
+        }
+        if (input.diskSize && parseToBytes(input.diskSize) > mainDisk.available) {
+          return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
+        }
       }
 
       const vm = await storage.updateVm(id, input);
