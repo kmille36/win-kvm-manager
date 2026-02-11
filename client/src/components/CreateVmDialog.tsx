@@ -118,20 +118,24 @@ export function CreateVmDialog() {
     form.setValue('customPorts', ports);
   }, [watchAll.customPortsString, form]);
 
-  const customPortMappings = (watchAll.customPorts || []).map(port => `-p <random>:${port}`).join(' ');
+  const [randomPorts] = useState({
+    web: Math.floor(10000 + Math.random() * 50000),
+    rdp: Math.floor(10000 + Math.random() * 50000),
+    custom: Array.from({ length: 20 }, () => Math.floor(10000 + Math.random() * 50000))
+  });
+
+  const customPortMappings = (watchAll.customPorts || []).map((port, idx) => `-p ${randomPorts.custom[idx]}:${port}`).join(' ');
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
-  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${watchAll.webPort}:8006 -p ${watchAll.rdpPort}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize} -e USERNAME="${watchAll.username || 'bill'}" -e PASSWORD="${watchAll.password || 'gates'}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows`;
-
-  useEffect(() => {
-    const currentCommand = form.getValues('customCommand');
-    if (!currentCommand || currentCommand.includes('--name')) {
-       form.setValue('customCommand', generatedCommand);
-    }
-  }, [generatedCommand, form]);
+  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize} -e USERNAME="${watchAll.username || 'bill'}" -e PASSWORD="${watchAll.password || 'gates'}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows`;
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    createVm.mutate(values, {
+    // Inject the random ports into the submission
+    createVm.mutate({
+      ...values,
+      webPort: randomPorts.web,
+      rdpPort: randomPorts.rdp
+    }, {
       onSuccess: () => {
         setOpen(false);
         form.reset();
@@ -309,6 +313,22 @@ export function CreateVmDialog() {
                 )}
               />
 
+              {/* Password */}
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="gates" {...field} value={field.value || ""} />
+                    </FormControl>
+                    <FormDescription>Windows user password</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
             </div>
 
             {/* Custom Command */}
@@ -317,17 +337,17 @@ export function CreateVmDialog() {
               name="customCommand"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Custom Docker Command (Optional)</FormLabel>
+                  <FormLabel>Docker Command (Generated)</FormLabel>
                   <FormControl>
                     <textarea 
-                      className="flex min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 font-mono"
-                      placeholder={generatedCommand}
+                      className="flex min-h-[100px] w-full rounded-md border border-input bg-muted/50 px-3 py-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-0 font-mono resize-none"
+                      readOnly
                       {...field}
                       value={field.value || ""}
                     />
                   </FormControl>
                   <FormDescription>
-                    If provided, this command will be used instead of the generated one.
+                    This is the final command that will be executed on the host.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

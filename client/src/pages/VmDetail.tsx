@@ -184,7 +184,7 @@ export default function VmDetail() {
 
             <div className="flex justify-between text-sm text-muted-foreground px-1">
                <span>Access via RDP: <code className="bg-muted px-1 py-0.5 rounded text-primary">{window.location.hostname}:{vm.rdpPort}</code></span>
-               <span>Web Port: {vm.webPort}</span>
+               <span>Web Console: <a href={`http://${window.location.hostname}:${vm.webPort}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{window.location.hostname}:{vm.webPort}</a></span>
             </div>
           </TabsContent>
 
@@ -232,11 +232,11 @@ export default function VmDetail() {
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="p-3 bg-secondary rounded border border-white/5">
                         <span className="block text-xs text-muted-foreground uppercase mb-1">Username</span>
-                        <code className="text-primary">Docker</code>
+                        <code className="text-primary">{vm.username || "bill"}</code>
                       </div>
                       <div className="p-3 bg-secondary rounded border border-white/5">
                         <span className="block text-xs text-muted-foreground uppercase mb-1">Password</span>
-                        <code className="text-primary">pass</code> (empty)
+                        <code className="text-primary">{vm.password || "gates"}</code>
                       </div>
                     </div>
                   </div>

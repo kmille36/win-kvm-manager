@@ -96,13 +96,13 @@ export async function registerRoutes(
         return m[2].toUpperCase() === 'G' ? n * 1024 * 1024 * 1024 : n * 1024 * 1024;
       };
 
-      if (input.cpuCores > cpu.cores) {
+      if (input.cpuCores && input.cpuCores > cpu.cores) {
         return res.status(400).json({ message: `Insufficient CPU cores (available: ${cpu.cores})` });
       }
-      if (parseToBytes(input.ramSize) > mem.free) {
+      if (input.ramSize && parseToBytes(input.ramSize) > mem.free) {
         return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024)}MB)` });
       }
-      if (parseToBytes(input.diskSize) > mainDisk.available) {
+      if (input.diskSize && parseToBytes(input.diskSize) > mainDisk.available) {
         return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
       }
 
@@ -197,12 +197,14 @@ export async function registerRoutes(
 
         const webHostPort = vm.webPort || getHostPort();
         const rdpHostPort = vm.rdpPort || getHostPort();
-        
+
         // Update VM with assigned ports so frontend can show links
-        await storage.updateVm(id, {
-          webPort: webHostPort,
-          rdpPort: rdpHostPort
-        });
+        if (!vm.webPort || !vm.rdpPort) {
+          await storage.updateVm(id, {
+            webPort: webHostPort,
+            rdpPort: rdpHostPort
+          });
+        }
 
         let command = vm.customCommand;
         if (!command) {
@@ -249,7 +251,13 @@ export async function registerRoutes(
         }
       } else if (action === 'stop') {
         const containerName = `windows-vm-${id}`;
-        await execAsync(`docker stop ${containerName}`);
+        try {
+          // Use -t 0 for faster stop if needed, but default is safer
+          await execAsync(`docker stop ${containerName}`);
+        } catch (e: any) {
+          console.error(`Error stopping container ${containerName}:`, e.message);
+          // If container is already stopped or doesn't exist, we still want to update DB
+        }
         await storage.updateVm(id, { status: 'stopped' });
       } else if (action === 'restart') {
         const containerName = `windows-vm-${id}`;
