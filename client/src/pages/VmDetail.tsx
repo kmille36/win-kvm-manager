@@ -352,8 +352,8 @@ export default function VmDetail() {
                           />
 
                         <div className="flex justify-end pt-4">
-                          <Button type="submit" disabled={updateVm.isPending}>
-                            {updateVm.isPending ? "Saving..." : <><Save className="mr-2 h-4 w-4" /> Save Changes</>}
+                          <Button type="submit" disabled={updateVm.isPending || isRunning}>
+                            {updateVm.isPending ? "Saving..." : isRunning ? <><Settings className="mr-2 h-4 w-4" /> Stop VM to Save</> : <><Save className="mr-2 h-4 w-4" /> Save Changes</>}
                           </Button>
                         </div>
                       </form>
