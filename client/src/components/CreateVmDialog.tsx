@@ -35,13 +35,24 @@ import { Plus, Monitor, Loader2 } from "lucide-react";
 import { z } from "zod";
 
 const WINDOWS_VERSIONS = [
-  { value: "11", label: "Windows 11" },
-  { value: "10", label: "Windows 10" },
-  { value: "8.1", label: "Windows 8.1" },
-  { value: "7", label: "Windows 7" },
-  { value: "2022", label: "Server 2022" },
-  { value: "2019", label: "Server 2019" },
-  { value: "xp", label: "Windows XP" },
+  { value: "11", label: "Windows 11 Pro (7.2 GB)" },
+  { value: "11l", label: "Windows 11 LTSC (4.7 GB)" },
+  { value: "11e", label: "Windows 11 Enterprise (6.6 GB)" },
+  { value: "10", label: "Windows 10 Pro (5.7 GB)" },
+  { value: "10l", label: "Windows 10 LTSC (4.6 GB)" },
+  { value: "10e", label: "Windows 10 Enterprise (5.2 GB)" },
+  { value: "8e", label: "Windows 8.1 Enterprise (3.7 GB)" },
+  { value: "7u", label: "Windows 7 Ultimate (3.1 GB)" },
+  { value: "vu", label: "Windows Vista Ultimate (3.0 GB)" },
+  { value: "xp", label: "Windows XP Professional (0.6 GB)" },
+  { value: "2k", label: "Windows 2000 Professional (0.4 GB)" },
+  { value: "2025", label: "Windows Server 2025 (6.7 GB)" },
+  { value: "2022", label: "Windows Server 2022 (6.0 GB)" },
+  { value: "2019", label: "Windows Server 2019 (5.3 GB)" },
+  { value: "2016", label: "Windows Server 2016 (6.5 GB)" },
+  { value: "2012", label: "Windows Server 2012 (4.3 GB)" },
+  { value: "2008", label: "Windows Server 2008 (3.0 GB)" },
+  { value: "2003", label: "Windows Server 2003 (0.6 GB)" },
 ];
 
 export function CreateVmDialog() {
@@ -74,14 +85,14 @@ export function CreateVmDialog() {
       if (!hostStats) return true;
       return val <= hostStats.cpu.cores;
     }, { message: `Cannot exceed host CPU cores (${hostStats?.cpu.cores || 'loading...'})` }),
-    ramSize: z.string().refine(val => {
+    ramSize: z.coerce.number().refine(val => {
       if (!hostStats) return true;
-      const requested = parseSizeToBytes(val);
+      const requested = val * 1024 * 1024 * 1024;
       return requested <= hostStats.mem.free;
     }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
-    diskSize: z.string().refine(val => {
+    diskSize: z.coerce.number().refine(val => {
       if (!hostStats) return true;
-      const requested = parseSizeToBytes(val);
+      const requested = val * 1024 * 1024 * 1024;
       return requested <= hostStats.disk.free;
     }, { message: `Cannot exceed available host disk space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
     customCommand: z.string().nullable().optional(),
@@ -93,9 +104,9 @@ export function CreateVmDialog() {
     defaultValues: {
       name: "",
       version: "11",
-      ramSize: "4G",
+      ramSize: 4 as any,
       cpuCores: 2,
-      diskSize: "64G",
+      diskSize: 64 as any,
       storagePath: "./windows",
       status: "stopped",
       webPort: 8006,
@@ -127,12 +138,19 @@ export function CreateVmDialog() {
   const customPortMappings = (watchAll.customPorts || []).map((port, idx) => `-p ${randomPorts.custom[idx]}:${port}`).join(' ');
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
-  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize} -e USERNAME="${watchAll.username || 'bill'}" -e PASSWORD="${watchAll.password || 'gates'}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows`;
+  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${watchAll.username || 'bill'}" -e PASSWORD="${watchAll.password || 'gates'}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --cap-add NET_ADMIN dockurr/windows`;
+
+  // Sync the generated command to the form's customCommand field
+  useEffect(() => {
+    form.setValue("customCommand", generatedCommand);
+  }, [generatedCommand, form]);
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     // Inject the random ports into the submission
     createVm.mutate({
       ...values,
+      ramSize: `${values.ramSize}G`,
+      diskSize: `${values.diskSize}G`,
       webPort: randomPorts.web,
       rdpPort: randomPorts.rdp
     }, {
@@ -151,7 +169,7 @@ export function CreateVmDialog() {
           Create VM
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur border-white/10">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur border-white/10">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <Monitor className="h-5 w-5 text-primary" />
@@ -227,11 +245,11 @@ export function CreateVmDialog() {
                 name="ramSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>RAM Size</FormLabel>
+                    <FormLabel>RAM Size (GB)</FormLabel>
                     <FormControl>
-                      <Input placeholder="4G" {...field} />
+                      <Input type="number" placeholder="4" {...field} />
                     </FormControl>
-                    <FormDescription>Format: 4G, 8G, 512M</FormDescription>
+                    <FormDescription>Memory to allocate</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -243,9 +261,9 @@ export function CreateVmDialog() {
                 name="diskSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Disk Size</FormLabel>
+                    <FormLabel>Disk Size (GB)</FormLabel>
                     <FormControl>
-                      <Input placeholder="64G" {...field} />
+                      <Input type="number" placeholder="64" {...field} />
                     </FormControl>
                     <FormDescription>Allocated C: drive space</FormDescription>
                     <FormMessage />

@@ -121,11 +121,60 @@ export async function registerRoutes(
 
   app.put(api.vms.update.path, async (req, res) => {
     try {
+      const id = Number(req.params.id);
       const input = api.vms.update.input.parse(req.body);
-      const vm = await storage.updateVm(Number(req.params.id), input);
-      if (!vm) {
+      
+      const oldVm = await storage.getVm(id);
+      if (!oldVm) {
         return res.status(404).json({ message: 'VM not found' });
       }
+
+      const vm = await storage.updateVm(id, input);
+      
+      // If the VM was running, we need to recreate the container to apply changes
+      if (oldVm.status === 'running') {
+        const containerName = `windows-vm-${id}`;
+        
+        // Stop and remove old container
+        try {
+          await execAsync(`docker stop ${containerName} && docker rm ${containerName}`);
+        } catch (e) {
+          console.error(`Error removing container ${containerName} during update:`, e);
+        }
+
+        try {
+          const webHostPort = vm!.webPort || (Math.floor(Math.random() * 50000) + 10000);
+          const rdpHostPort = vm!.rdpPort || (Math.floor(Math.random() * 50000) + 10000);
+          
+          let command = vm!.customCommand;
+          if (!command) {
+            command = `docker run -d --name ${containerName} ` +
+              `-e "VERSION=${vm!.version}" ` +
+              `-e RAM_SIZE=${vm!.ramSize} ` +
+              `-e CPU_CORES=${vm!.cpuCores} ` +
+              `-e DISK_SIZE=${vm!.diskSize} ` +
+              `-e USERNAME="${vm!.username || 'bill'}" ` +
+              `-e PASSWORD="${vm!.password || 'gates'}" ` +
+              `-p ${webHostPort}:8006 ` +
+              `-p ${rdpHostPort}:3389 ` +
+              `--device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN ` +
+              `-v "${vm!.storagePath}:/storage" ` +
+              `--stop-timeout 120 docker.io/dockurr/windows`;
+          } else {
+             if (command.includes('-it')) command = command.replace('-it', '-d');
+             if (!command.includes('--name')) {
+               command = command.replace('docker run', `docker run --name ${containerName}`);
+             }
+          }
+          
+          await execAsync(command);
+          await storage.updateVm(id, { status: 'running' });
+        } catch (err) {
+          console.error("Failed to auto-restart VM after config change:", err);
+          await storage.updateVm(id, { status: 'error', lastOutput: String(err) });
+        }
+      }
+
       res.json(vm);
     } catch (err) {
       if (err instanceof z.ZodError) {
