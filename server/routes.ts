@@ -136,7 +136,7 @@ export async function registerRoutes(
       const vm = await storage.updateVm(id, input);
       
       // Remove old container to ensure the next start uses the new configuration
-      const containerName = `windows-vm-${id}`;
+      const containerName = oldVm.name;
       try {
         await execAsync(`docker rm -f ${containerName}`);
       } catch (e) {
@@ -157,7 +157,8 @@ export async function registerRoutes(
 
   app.delete(api.vms.delete.path, async (req, res) => {
     const id = Number(req.params.id);
-    const containerName = `windows-vm-${id}`;
+    const vm = await storage.getVm(id);
+    const containerName = vm?.name || `windows-vm-${id}`;
     
     // Stop and remove the docker container if it exists
     try {
@@ -192,9 +193,10 @@ export async function registerRoutes(
       return res.status(404).json({ message: 'VM not found' });
     }
 
+    const containerName = vm.name;
+
     try {
       if (action === 'start') {
-        const containerName = `windows-vm-${id}`;
         
         // Stop/remove existing container if any
         try {
@@ -267,7 +269,6 @@ export async function registerRoutes(
           throw error;
         }
       } else if (action === 'stop') {
-        const containerName = `windows-vm-${id}`;
         try {
           // Use -t 0 for faster stop if needed, but default is safer
           await execAsync(`docker stop ${containerName}`);
@@ -277,7 +278,6 @@ export async function registerRoutes(
         }
         await storage.updateVm(id, { status: 'stopped' });
       } else if (action === 'restart') {
-        const containerName = `windows-vm-${id}`;
         await execAsync(`docker restart ${containerName}`);
         await storage.updateVm(id, { status: 'running' });
       }
