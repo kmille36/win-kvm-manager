@@ -132,9 +132,9 @@ export function CreateVmDialog() {
   }, [watchAll.customPortsString, form]);
 
   const [randomPorts] = useState(() => ({
-    web: Math.floor(10000 + Math.random() * 50000),
-    rdp: Math.floor(10000 + Math.random() * 50000),
-    custom: Array.from({ length: 20 }, () => Math.floor(10000 + Math.random() * 89999))
+    web: Math.floor(10000 + Math.random() * (65535 - 10000 + 1)),
+    rdp: Math.floor(10000 + Math.random() * (65535 - 10000 + 1)),
+    custom: Array.from({ length: 20 }, () => Math.floor(10000 + Math.random() * (65535 - 10000 + 1)))
   }));
 
   const customPortMappings = (watchAll.customPorts || []).map((port, idx) => {
