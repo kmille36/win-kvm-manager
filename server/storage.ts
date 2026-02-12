@@ -85,10 +85,10 @@ export class JsonStorage implements IStorage {
       : insertVm.storagePath;
       
     // Use the storagePath directly if it's already an absolute path within storageDir
-    // otherwise join it with baseDir
-    const storagePath = (path.isAbsolute(insertVm.storagePath || "") && (insertVm.storagePath || "").startsWith(storageDir))
-      ? insertVm.storagePath!
-      : join(baseDir, safeName);
+    // otherwise join it with storageDir
+    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath) && insertVm.storagePath.startsWith(storageDir))
+      ? insertVm.storagePath
+      : join(storageDir, safeName);
     const normalizedStoragePath = path.resolve(storagePath);
     
     if (!existsSync(normalizedStoragePath)) {
@@ -163,15 +163,15 @@ export class JsonStorage implements IStorage {
       : insertVm.storagePath;
       
     // Use the storagePath directly if it's already an absolute path within storageDir
-    // otherwise join it with baseDir
-    const storagePath = (path.isAbsolute(insertVm.storagePath || "") && (insertVm.storagePath || "").startsWith(storageDir))
-      ? insertVm.storagePath!
-      : join(baseDir, safeName);
+    // otherwise join it with storageDir
+    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath) && insertVm.storagePath.startsWith(storageDir))
+      ? insertVm.storagePath
+      : join(storageDir, safeName);
     let normalizedStoragePath = path.resolve(storagePath);
 
     // CRITICAL: Ensure we are not creating the new folder inside the source VM's folder
-    // This happens if baseDir is the sourceVm.storagePath
-    if (normalizedStoragePath.startsWith(sourceVm.storagePath + path.sep)) {
+    // This happens if the user tries to clone into a subfolder of the source
+    if (normalizedStoragePath.startsWith(sourceVm.storagePath + path.sep) || normalizedStoragePath === sourceVm.storagePath) {
       // Force it to be a sibling of the source VM directory instead
       normalizedStoragePath = join(path.dirname(sourceVm.storagePath), safeName);
     }
@@ -192,13 +192,15 @@ export class JsonStorage implements IStorage {
           // For progress, we'll simulate it since cp -r doesn't give much
           const cpProcess = exec(`cp -rv "${sourceVm.storagePath}/." "${normalizedStoragePath}"`);
           
-          let lines = 0;
-          cpProcess.stdout.on('data', () => {
-            lines++;
-            // Estimate progress based on lines (very rough)
-            const progress = Math.min(90, 10 + Math.floor(lines / 10));
-            onProgress?.(progress);
-          });
+          if (cpProcess.stdout) {
+            let lines = 0;
+            cpProcess.stdout.on('data', () => {
+              lines++;
+              // Estimate progress based on lines (very rough)
+              const progress = Math.min(90, 10 + Math.floor(lines / 10));
+              onProgress?.(progress);
+            });
+          }
 
           await new Promise((resolve, reject) => {
             cpProcess.on('exit', (code: number) => {
