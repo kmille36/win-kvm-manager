@@ -121,7 +121,7 @@ export function HostStatsCards() {
             <div>
               <div className="text-2xl font-bold font-mono-numbers">{stats.disk.usedPercent.toFixed(1)}%</div>
               <p className="text-xs text-muted-foreground">
-                {(stats.disk.free / 1024 / 1024 / 1024).toFixed(0)} GB Free
+                {(stats.disk.used / 1024 / 1024 / 1024).toFixed(1)} / {(stats.disk.total / 1024 / 1024 / 1024).toFixed(1)} GB
               </p>
             </div>
             {renderMiniChart(stats.disk.usedPercent, "#34d399")}
