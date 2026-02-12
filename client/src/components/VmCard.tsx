@@ -35,18 +35,17 @@ export function VmCard({ vm }: VmCardProps) {
         <div className="flex items-center gap-2">
           <StatusBadge status={vm.status || "stopped"} />
           
-          {vm.status === "stopped" && (
-            <CloneVmDialog vm={vm}>
-              <Button 
-                size="icon" 
-                variant="ghost" 
-                className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                title="Clone VM"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </CloneVmDialog>
-          )}
+          <CloneVmDialog vm={vm}>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+              disabled={vm.status !== "stopped"}
+              title={vm.status !== "stopped" ? "Stop VM to clone" : "Clone VM"}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </CloneVmDialog>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

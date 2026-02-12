@@ -272,37 +272,6 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="storagePath"
-                render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Storage Path</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select path">
-                            {field.value === "./windows" ? "Default (./windows)" : field.value}
-                          </SelectValue>
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="./windows">Default (./windows)</SelectItem>
-                        {paths.filter(path => {
-                          const systemPaths = ['/bin', '/boot', '/dev', '/etc', '/lib', '/lib64', '/proc', '/run', '/sbin', '/sys', '/tmp', '/usr', '/var'];
-                          return !path.startsWith('/') || !systemPaths.some(sp => path === sp || path.startsWith(sp + '/'));
-                        }).map((path) => (
-                          <SelectItem key={path} value={path}>
-                            {path}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Container volume path</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </div>
 
             <FormField

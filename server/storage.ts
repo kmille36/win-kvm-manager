@@ -72,8 +72,12 @@ export class JsonStorage implements IStorage {
     const safeName = insertVm.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
     
     // If user selected default or a specific path, we create a subfolder with VM name
+    const projectRoot = process.cwd();
+    const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
+    const storageDir = isWinKvmManagerDir ? join(projectRoot, 'storage') : join(projectRoot, 'win-kvm-manager', 'storage');
+
     const baseDir = (insertVm.storagePath === "./windows" || !insertVm.storagePath)
-      ? join(process.cwd(), 'storage')
+      ? storageDir
       : insertVm.storagePath;
       
     const storagePath = join(baseDir, safeName);

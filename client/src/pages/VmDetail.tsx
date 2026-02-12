@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save, AlertTriangle, Copy, Check } from "lucide-react";
+import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save, AlertTriangle, Copy, Check, CopyPlus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,6 +16,7 @@ import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { CloneVmDialog } from "@/components/CloneVmDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -580,6 +581,38 @@ export default function VmDetail() {
               </div>
 
               <div>
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CopyPlus className="h-5 w-5 text-primary" />
+                      Clone Instance
+                    </CardTitle>
+                    <CardDescription>
+                      Create a duplicate of this virtual machine.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Create a duplicate of this virtual machine with all its current storage and configuration.
+                    </p>
+                    <CloneVmDialog vm={vm}>
+                      <Button 
+                        variant="outline" 
+                        className="w-full" 
+                        disabled={vm.status !== "stopped"}
+                      >
+                        <CopyPlus className="mr-2 h-4 w-4" />
+                        Clone this VM
+                      </Button>
+                    </CloneVmDialog>
+                    {vm.status !== "stopped" && (
+                      <p className="text-[10px] text-red-400 mt-2 text-center">
+                        Stop the VM before cloning.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card className="border-red-900/20 bg-red-900/5">
                   <CardHeader>
                     <CardTitle className="text-red-400">Danger Zone</CardTitle>
