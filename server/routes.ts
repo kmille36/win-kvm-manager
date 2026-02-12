@@ -7,6 +7,7 @@ import { z } from "zod";
 import si from "systeminformation";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { join } from "path";
 
 const execAsync = promisify(exec);
 
