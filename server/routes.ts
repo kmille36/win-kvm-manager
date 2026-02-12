@@ -60,7 +60,9 @@ export async function registerRoutes(
         si.networkInterfaceDefault()
       ]);
 
-      const mainDisk = disk[0] || { size: 0, used: 0, available: 0, use: 0 };
+      // Use the filesystem where the current directory (project) is located
+      const currentDir = process.cwd();
+      const mainDisk = disk.find(d => currentDir.startsWith(d.mount)) || disk[0] || { size: 0, used: 0, available: 0, use: 0 };
 
       // Get current network throughput
       const netThroughput = await si.networkStats();
@@ -122,6 +124,7 @@ export async function registerRoutes(
     try {
       // Validate with schema and ensure customPorts is handled
       const input = api.vms.create.input.parse(req.body);
+      const { cloneFromId } = req.body;
 
       // Check for duplicate VM name
       const existingVm = await storage.getVmByName(input.name);
@@ -130,19 +133,18 @@ export async function registerRoutes(
       }
 
       // Backend validation for host resources
-      const [cpu, mem, disk] = await Promise.all([
+      const [cpu, mem, diskSizes] = await Promise.all([
         si.cpu(),
         si.mem(),
         si.fsSize()
       ]);
 
-      const mainDisk = disk[0] || { available: 0 };
+      const currentDir = process.cwd();
+      const mainDisk = diskSizes.find(d => currentDir.startsWith(d.mount)) || diskSizes[0] || { available: 0 };
       
-      // Parse RAM/Disk strings to bytes (simplified helper)
       const parseToBytes = (s: string) => {
         const m = s.match(/^(\d+)([GM])$/i);
         if (!m) {
-          // Fallback for plain numbers, default to GB
           if (/^\d+$/.test(s)) return parseInt(s) * 1024 * 1024 * 1024;
           return 0;
         }
@@ -160,12 +162,30 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
       }
 
+      // Handle cloning folder if cloneFromId is provided
+      if (cloneFromId) {
+        const sourceVm = await storage.getVm(Number(cloneFromId));
+        if (sourceVm) {
+          const sourceSafeName = sourceVm.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          const targetSafeName = input.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          
+          const sourceBasePath = (sourceVm.storagePath === "./windows" || !sourceVm.storagePath) ? "./storage" : sourceVm.storagePath;
+          const targetBasePath = (input.storagePath === "./windows" || !input.storagePath) ? "./storage" : input.storagePath;
+          
+          const sourceDir = `${sourceBasePath}/${sourceSafeName}`;
+          const targetDir = `${targetBasePath}/${targetSafeName}`;
+          
+          try {
+            console.log(`Cloning VM folder from ${sourceDir} to ${targetDir}`);
+            await execAsync(`mkdir -p "${targetBasePath}" && cp -r "${sourceDir}" "${targetDir}"`);
+          } catch (e) {
+            console.error("Failed to copy VM storage folder:", e);
+            // We proceed anyway, but the VM might not have its data
+          }
+        }
+      }
+
       const vm = await storage.createVm(input);
-      
-      // If no custom command was provided, it was generated in CreateVmDialog and sent in the request.
-      // However, we need to make sure the one stored in DB is correct.
-      // The frontend sends input.customCommand which is the generated one.
-      
       res.status(201).json(vm);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -190,13 +210,14 @@ export async function registerRoutes(
 
       // Backend validation for host resources (only if they are being updated)
       if (input.cpuCores || input.ramSize || input.diskSize) {
-        const [cpu, mem, disk] = await Promise.all([
+        const [cpu, mem, diskSizes] = await Promise.all([
           si.cpu(),
           si.mem(),
           si.fsSize()
         ]);
 
-        const mainDisk = disk[0] || { available: 0 };
+        const currentDir = process.cwd();
+        const mainDisk = diskSizes.find(d => currentDir.startsWith(d.mount)) || diskSizes[0] || { available: 0 };
         
         const parseToBytes = (s: string) => {
           const m = s.match(/^(\d+)([GM])$/i);
@@ -264,8 +285,10 @@ export async function registerRoutes(
   // System Paths Endpoint
   app.get("/api/system/paths", async (req, res) => {
     try {
-      const { stdout } = await execAsync("find / -maxdepth 2 -type d 2>/dev/null | grep -v '^/proc' | grep -v '^/sys' | grep -v '^/dev' | head -n 100");
-      const paths = stdout.split('\n').filter(p => p.trim() !== '');
+      const { stdout } = await execAsync("find . -maxdepth 2 -type d 2>/dev/null | grep -v '^\\./node_modules' | grep -v '^\\./\\.git' | grep -v '^\\./win-kvm-manager' | head -n 100");
+      const paths = stdout.split('\n')
+        .filter(p => p.trim() !== '' && p !== '.')
+        .map(p => p.replace(/^\.\//, ''));
       res.json(paths);
     } catch (error) {
       console.error("Error fetching paths:", error);

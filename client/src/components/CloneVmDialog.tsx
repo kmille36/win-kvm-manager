@@ -1,6 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertVmSchema, type HostStatsResponse } from "@shared/schema";
+import { insertVmSchema, type HostStatsResponse, type Vm } from "@shared/schema";
 import { useCreateVm } from "@/hooks/use-vms";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@shared/routes";
@@ -31,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { Plus, Monitor, Loader2 } from "lucide-react";
+import { Monitor, Loader2 } from "lucide-react";
 import { z } from "zod";
 
 const WINDOWS_VERSIONS = [
@@ -55,7 +55,12 @@ const WINDOWS_VERSIONS = [
   { value: "2003", label: "Windows Server 2003 (0.6 GB)" },
 ];
 
-export function CreateVmDialog() {
+interface CloneVmDialogProps {
+  vm: Vm;
+  children: React.ReactNode;
+}
+
+export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
   const [open, setOpen] = useState(false);
   const createVm = useCreateVm();
 
@@ -67,20 +72,18 @@ export function CreateVmDialog() {
     queryKey: [api.system.paths.path],
   });
 
-  // Helper to parse sizes like "4G", "512M" to bytes
-  const parseSizeToBytes = (size: string) => {
-    const match = size.match(/^(\d+)([GM])$/i);
-    if (!match) return 0;
-    const num = parseInt(match[1]);
-    const unit = match[2].toUpperCase();
-    return unit === 'G' ? num * 1024 * 1024 * 1024 : num * 1024 * 1024;
+  // Helper to parse RAM/Disk strings to GB
+  const parseToGB = (s: string) => {
+    const m = s.match(/^(\d+)([GM])$/i);
+    if (!m) return 4;
+    const n = parseInt(m[1]);
+    return m[2].toUpperCase() === 'G' ? n : Math.ceil(n / 1024);
   };
 
-  // Extend the base schema to coerce numbers from string inputs
   const formSchema = insertVmSchema.extend({
     name: z.string()
       .min(2, "Name must be at least 2 characters")
-      .regex(/^[a-zA-Z0-9-]+$/, "Name can only contain letters, numbers, and hyphens (no spaces or special characters)"),
+      .regex(/^[a-zA-Z0-9-]+$/, "Name can only contain letters, numbers, and hyphens"),
     cpuCores: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
       return val <= hostStats.cpu.cores;
@@ -106,23 +109,23 @@ export function CreateVmDialog() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: "",
-      version: "11",
-      ramSize: 4,
-      cpuCores: 2,
-      diskSize: 64,
-      storagePath: "./windows",
+      name: `${vm.name}-clone`,
+      version: vm.version,
+      ramSize: parseToGB(vm.ramSize),
+      cpuCores: vm.cpuCores,
+      diskSize: parseToGB(vm.diskSize),
+      storagePath: vm.storagePath,
       status: "stopped",
       customCommand: "",
-      customPortsString: "",
-      customPorts: [],
-      username: "bill",
-      password: "gates",
+      customPortsString: vm.customPortsString || "",
+      customPorts: vm.customPorts || [],
+      username: vm.username || "bill",
+      password: vm.password || "gates",
     },
   });
 
   const watchAll = form.watch();
-  
+
   // Update customPorts array whenever customPortsString changes
   useEffect(() => {
     const ports = watchAll.customPortsString
@@ -152,7 +155,6 @@ export function CreateVmDialog() {
   }, [open]);
 
   const customPortMappings = (watchAll.customPorts || []).map((port, idx) => {
-    // We use the stable randomPorts.custom array indexed by the position in the customPorts list
     const hostPort = randomPorts.custom[idx % randomPorts.custom.length];
     return `-p ${hostPort}:${port}`;
   }).join(' ');
@@ -160,32 +162,24 @@ export function CreateVmDialog() {
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
   
-  const username = watchAll.username || 'bill';
-  const password = watchAll.password || 'gates';
-  
-  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${username}" -e PASSWORD="${password}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows`;
+  const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${watchAll.username}" -e PASSWORD="${watchAll.password}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows`;
 
-  // Sync the generated command to the form's customCommand field
   useEffect(() => {
     form.setValue("customCommand", generatedCommand);
   }, [generatedCommand, form]);
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    // Inject the sizes into the submission
-    const ramSize = `${values.ramSize}G`;
-    const diskSize = `${values.diskSize}G`;
-    
     createVm.mutate({
       ...values,
-      ramSize,
-      diskSize,
+      ramSize: `${values.ramSize}G`,
+      diskSize: `${values.diskSize}G`,
       webPort: randomPorts.web,
       rdpPort: randomPorts.rdp,
       customCommand: generatedCommand,
       customPorts: (values.customPortsString || "").split(',').map(p => p.trim()).filter(p => p && !isNaN(parseInt(p))),
-      username: values.username || "bill",
-      password: values.password || "gates"
-    }, {
+      // Pass cloneFromId to tell backend to copy folder
+      cloneFromId: vm.id
+    } as any, {
       onSuccess: () => {
         setOpen(false);
         form.reset();
@@ -196,27 +190,22 @@ export function CreateVmDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20">
-          <Plus className="mr-2 h-4 w-4" />
-          Create VM
-        </Button>
+        {children}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur border-white/10">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <Monitor className="h-5 w-5 text-primary" />
-            Provision Virtual Machine
+            Clone Virtual Machine
           </DialogTitle>
           <DialogDescription>
-            Configure your new Windows instance. Ensure host resources are available.
+            Configure your cloned instance. This will copy the storage from "{vm.name}".
           </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* Name */}
               <FormField
                 control={form.control}
                 name="name"
@@ -224,38 +213,12 @@ export function CreateVmDialog() {
                   <FormItem>
                     <FormLabel>VM Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Win11-Gaming" {...field} />
+                      <Input placeholder="e.g. Win11-Clone" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {/* Version */}
-              <FormField
-                control={form.control}
-                name="version"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Windows Version</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select OS" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {WINDOWS_VERSIONS.map((v) => (
-                          <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* CPU */}
               <FormField
                 control={form.control}
                 name="cpuCores"
@@ -263,47 +226,38 @@ export function CreateVmDialog() {
                   <FormItem>
                     <FormLabel>CPU Cores</FormLabel>
                     <FormControl>
-                      <Input type="number" min={1} max={32} {...field} />
+                      <Input type="number" {...field} />
                     </FormControl>
-                    <FormDescription>Physical cores to allocate</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {/* RAM */}
               <FormField
                 control={form.control}
                 name="ramSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>RAM Size</FormLabel>
+                    <FormLabel>RAM Size (GB)</FormLabel>
                     <FormControl>
-                      <Input placeholder="4" {...field} />
+                      <Input type="number" {...field} />
                     </FormControl>
-                    <FormDescription>Memory to allocate in GB (e.g. 4 for 4GB)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {/* Disk Size */}
               <FormField
                 control={form.control}
                 name="diskSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Disk Size</FormLabel>
+                    <FormLabel>Disk Size (GB)</FormLabel>
                     <FormControl>
-                      <Input placeholder="64" {...field} />
+                      <Input type="number" {...field} />
                     </FormControl>
-                    <FormDescription>Allocated C: drive space in GB (e.g. 64 for 64GB)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {/* Custom Ports */}
               <FormField
                 control={form.control}
                 name="customPortsString"
@@ -318,50 +272,18 @@ export function CreateVmDialog() {
                   </FormItem>
                 )}
               />
-
-              {/* Username */}
-              <FormField
-                control={form.control}
-                name="username"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Username</FormLabel>
-                    <FormControl>
-                      <Input placeholder="bill" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormDescription>Windows user account name</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Password */}
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="gates" {...field} value={field.value || ""} />
-                    </FormControl>
-                    <FormDescription>Windows user password</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Storage Path */}
               <FormField
                 control={form.control}
                 name="storagePath"
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
                     <FormLabel>Storage Path</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger data-testid="select-storage-path">
-                          <SelectValue placeholder="Select path" />
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select path">
+                            {field.value === "./windows" ? "Default (./windows)" : field.value}
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -381,10 +303,8 @@ export function CreateVmDialog() {
                   </FormItem>
                 )}
               />
-
             </div>
 
-            {/* Custom Command */}
             <FormField
               control={form.control}
               name="customCommand"
@@ -412,13 +332,7 @@ export function CreateVmDialog() {
                 Cancel
               </Button>
               <Button type="submit" disabled={createVm.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                {createVm.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...
-                  </>
-                ) : (
-                  "Create Instance"
-                )}
+                {createVm.isPending ? "Cloning..." : "Clone Instance"}
               </Button>
             </div>
           </form>

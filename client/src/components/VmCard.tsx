@@ -2,9 +2,10 @@ import { Vm } from "@shared/schema";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "./StatusBadge";
-import { Cpu, HardDrive, MemoryStick, Play, Square, RefreshCcw, Settings, Trash2 } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, Play, Square, Settings, Trash2, Copy } from "lucide-react";
 import { Link } from "wouter";
 import { useVmAction, useDeleteVm } from "@/hooks/use-vms";
+import { CloneVmDialog } from "./CloneVmDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,20 @@ export function VmCard({ vm }: VmCardProps) {
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={vm.status || "stopped"} />
+          
+          {vm.status === "stopped" && (
+            <CloneVmDialog vm={vm}>
+              <Button 
+                size="icon" 
+                variant="ghost" 
+                className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                title="Clone VM"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </CloneVmDialog>
+          )}
+
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button 
