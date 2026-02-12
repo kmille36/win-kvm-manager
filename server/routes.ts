@@ -19,7 +19,7 @@ function startStatusSync() {
   setInterval(async () => {
     try {
       const vms = await storage.getVms();
-      const { stdout } = await execAsync("docker ps --format '{{.Names}}'");
+      const { stdout } = await execAsync("docker ps --format '{{.Names}}'", { cwd: process.cwd() });
       const runningContainers = new Set(stdout.split("\n").map(n => n.trim()).filter(n => n !== ""));
 
       for (const vm of vms) {
@@ -72,6 +72,9 @@ export async function registerRoutes(
                            .find(d => storageDir.startsWith(d.mount) || projectRoot.startsWith(d.mount)) || 
                        disk[0] || 
                        { size: 0, used: 0, available: 0, use: 0 };
+
+      // Ensure we are in a valid working directory for subprocesses
+      const execOptions = { cwd: projectRoot };
 
       // Get current network throughput
       const netThroughput = await si.networkStats();
@@ -270,7 +273,7 @@ export async function registerRoutes(
       // Remove old container to ensure the next start uses the new configuration
       const containerName = oldVm.name;
       try {
-        await execAsync(`docker rm -f ${containerName}`);
+        await execAsync(`docker rm -f ${containerName}`, { cwd: process.cwd() });
       } catch (e) {
         console.error(`Error removing container ${containerName} during update:`, e);
       }
@@ -294,7 +297,7 @@ export async function registerRoutes(
     
     // Stop and remove the docker container if it exists
     try {
-      await execAsync(`docker stop ${containerName} && docker rm ${containerName}`);
+      await execAsync(`docker stop ${containerName} && docker rm ${containerName}`, { cwd: process.cwd() });
     } catch (e) {
       // Ignore errors if container doesn't exist
     }
@@ -306,7 +309,7 @@ export async function registerRoutes(
   // System Paths Endpoint
   app.get("/api/system/paths", async (req, res) => {
     try {
-      const { stdout } = await execAsync("find . -maxdepth 2 -type d 2>/dev/null | grep -v '^\\./node_modules' | grep -v '^\\./\\.git' | grep -v '^\\./win-kvm-manager' | head -n 100");
+      const { stdout } = await execAsync("find . -maxdepth 2 -type d 2>/dev/null | grep -v '^\\./node_modules' | grep -v '^\\./\\.git' | grep -v '^\\./win-kvm-manager' | head -n 100", { cwd: process.cwd() });
       const paths = stdout.split('\n')
         .filter(p => p.trim() !== '' && p !== '.')
         .map(p => p.replace(/^\.\//, ''));
@@ -334,7 +337,7 @@ export async function registerRoutes(
         
         // Stop/remove existing container if any
         try {
-          await execAsync(`docker stop ${containerName} && docker rm ${containerName}`);
+          await execAsync(`docker stop ${containerName} && docker rm ${containerName}`, { cwd: process.cwd() });
         } catch (e) {}
 
         // Assign fixed random ports if not already set, to ensure they show up in UI
@@ -416,7 +419,7 @@ export async function registerRoutes(
 
       console.log(`Executing: ${command}`);
       try {
-        const { stdout, stderr } = await execAsync(command);
+        const { stdout, stderr } = await execAsync(command, { cwd: process.cwd() });
         const output = stdout + stderr;
         await storage.updateVm(id, { 
           status: 'running',
@@ -432,14 +435,14 @@ export async function registerRoutes(
     } else if (action === 'stop') {
         try {
           // Use -t 0 for faster stop if needed, but default is safer
-          await execAsync(`docker stop ${containerName}`);
+          await execAsync(`docker stop ${containerName}`, { cwd: process.cwd() });
         } catch (e: any) {
           console.error(`Error stopping container ${containerName}:`, e.message);
           // If container is already stopped or doesn't exist, we still want to update DB
         }
         await storage.updateVm(id, { status: 'stopped' });
       } else if (action === 'restart') {
-        await execAsync(`docker restart ${containerName}`);
+        await execAsync(`docker restart ${containerName}`, { cwd: process.cwd() });
         await storage.updateVm(id, { status: 'running' });
       }
 

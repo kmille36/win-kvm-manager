@@ -112,7 +112,7 @@ export class JsonStorage implements IStorage {
       
     // Use the storagePath directly if it's already an absolute path within storageDir
     // otherwise join it with storageDir
-    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath) && insertVm.storagePath.startsWith(storageDir))
+    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath))
       ? insertVm.storagePath
       : join(storageDir, safeName);
     const normalizedStoragePath = path.resolve(storagePath);
@@ -190,7 +190,7 @@ export class JsonStorage implements IStorage {
       
     // Use the storagePath directly if it's already an absolute path within storageDir
     // otherwise join it with storageDir
-    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath) && insertVm.storagePath.startsWith(storageDir))
+    const storagePath = (insertVm.storagePath && path.isAbsolute(insertVm.storagePath))
       ? insertVm.storagePath
       : join(storageDir, safeName);
     let normalizedStoragePath = path.resolve(storagePath);
@@ -216,7 +216,7 @@ export class JsonStorage implements IStorage {
           onProgress?.(10);
           // Use rsync if available for better progress or just a simple cp
           // For progress, we'll simulate it since cp -r doesn't give much
-          const cpProcess = exec(`cp -rv "${sourceVm.storagePath}/." "${normalizedStoragePath}"`);
+          const cpProcess = exec(`cp -rv "${sourceVm.storagePath}/." "${normalizedStoragePath}"`, { cwd: projectRoot });
           
           if (cpProcess.stdout) {
             let lines = 0;
