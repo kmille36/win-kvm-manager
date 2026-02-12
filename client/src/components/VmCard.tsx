@@ -5,6 +5,17 @@ import { StatusBadge } from "./StatusBadge";
 import { Cpu, HardDrive, MemoryStick, Play, Square, RefreshCcw, Settings, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { useVmAction, useDeleteVm } from "@/hooks/use-vms";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface VmCardProps {
   vm: Vm;
@@ -14,14 +25,6 @@ export function VmCard({ vm }: VmCardProps) {
   const { mutate: performAction, isPending: isActionPending } = useVmAction();
   const { mutate: deleteVm, isPending: isDeletePending } = useDeleteVm();
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (confirm("Are you sure you want to delete this VM?")) {
-      deleteVm(vm.id);
-    }
-  };
-
   return (
     <Card className="group overflow-hidden bg-card/50 backdrop-blur border-white/5 hover:border-primary/50 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-secondary/30 border-b border-white/5">
@@ -30,16 +33,36 @@ export function VmCard({ vm }: VmCardProps) {
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={vm.status || "stopped"} />
-          <Button 
-            size="icon" 
-            variant="ghost" 
-            className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-            onClick={handleDelete}
-            disabled={isDeletePending || vm.status === "running"}
-            title={vm.status === "running" ? "Stop VM to delete" : "Delete VM"}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button 
+                size="icon" 
+                variant="ghost" 
+                className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                disabled={isDeletePending || vm.status === "running"}
+                title={vm.status === "running" ? "Stop VM to delete" : "Delete VM"}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the virtual machine "{vm.name}" and remove all associated data. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction 
+                  onClick={() => deleteVm(vm.id)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardHeader>
       

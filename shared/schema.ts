@@ -16,6 +16,7 @@ export const vms = pgTable("vms", {
   webPort: integer("web_port").default(8006),
   rdpPort: integer("rdp_port").default(3389),
   customPorts: text("custom_ports").array(), // Added for custom port NAT
+  customPortsString: text("custom_ports_string"), // Added for UI sync
   username: text("username").default("bill"), // Added for docker run env
   password: text("password").default("gates"), // Added for docker run env
   lastOutput: text("last_output"), // Added to store docker run output
@@ -55,6 +56,12 @@ export interface HostStats {
     free: number;
     usedPercent: number;
   };
+  network?: {
+    iface: string;
+    operstate: string;
+    rx_sec: number;
+    tx_sec: number;
+  }[];
   uptime: number;
   platform: string;
 }

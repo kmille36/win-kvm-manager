@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
+import { HostStatsResponse, Vm } from "@shared/schema";
 import { z } from "zod";
 import si from "systeminformation";
 import { exec } from "child_process";
@@ -9,28 +10,65 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
+/**
+ * Periodically checks Docker container status and updates the storage
+ * to reflect if a VM was stopped externally (e.g. from within the guest OS).
+ */
+function startStatusSync() {
+  setInterval(async () => {
+    try {
+      const vms = await storage.getVms();
+      const { stdout } = await execAsync("docker ps --format '{{.Names}}'");
+      const runningContainers = new Set(stdout.split("\n").map(n => n.trim()).filter(n => n !== ""));
+
+      for (const vm of vms) {
+        const containerName = vm.name;
+        const isActuallyRunning = runningContainers.has(containerName);
+
+        if (vm.status === "running" && !isActuallyRunning) {
+          console.log(`VM "${vm.name}" detected as stopped externally. Updating status.`);
+          await storage.updateVm(vm.id, { status: "stopped" });
+        } else if (vm.status === "stopped" && isActuallyRunning) {
+          // This handles cases where someone might have manually started the container via CLI
+          console.log(`VM "${vm.name}" detected as running externally. Updating status.`);
+          await storage.updateVm(vm.id, { status: "running" });
+        }
+      }
+    } catch (error) {
+      // Docker might not be available or command failed, ignore to prevent crash
+    }
+  }, 5000); // Check every 5 seconds
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Start the background status synchronization
+  startStatusSync();
 
   // Host Stats Endpoint
   app.get(api.stats.host.path, async (req, res) => {
     try {
-      const [cpu, mem, disk, time, os] = await Promise.all([
+      const [cpu, mem, disk, time, os, netIfaces, netStats] = await Promise.all([
         si.cpu(),
         si.mem(),
         si.fsSize(),
         si.time(),
-        si.osInfo()
+        si.osInfo(),
+        si.networkInterfaces(),
+        si.networkInterfaceDefault()
       ]);
 
       const mainDisk = disk[0] || { size: 0, used: 0, available: 0, use: 0 };
 
-      const stats = {
+      // Get current network throughput
+      const netThroughput = await si.networkStats();
+
+      const stats: HostStatsResponse = {
         cpu: {
           cores: cpu.cores,
-          usagePercent: 0, // Need to measure this or use currentLoad
+          usagePercent: 0,
           model: `${cpu.manufacturer} ${cpu.brand}`,
         },
         mem: {
@@ -42,14 +80,20 @@ export async function registerRoutes(
         disk: {
           total: mainDisk.size,
           used: mainDisk.used,
-          free: mainDisk.available, // available is better than free for logic
+          free: mainDisk.available,
           usedPercent: mainDisk.use,
         },
+        network: netThroughput.map(n => ({
+          iface: n.iface,
+          operstate: n.operstate,
+          rx_sec: n.rx_sec,
+          tx_sec: n.tx_sec
+        })),
         uptime: time.uptime,
         platform: `${os.platform} ${os.release}`,
       };
 
-      // Get CPU load separately as it might be async/different
+      // Get CPU load separately
       const load = await si.currentLoad();
       stats.cpu.usagePercent = load.currentLoad;
 
@@ -260,75 +304,88 @@ export async function registerRoutes(
           return hostPort;
         };
 
-        const webHostPort = vm.webPort || getHostPort();
-        const rdpHostPort = vm.rdpPort || getHostPort();
+      const webHostPort = vm.webPort || getHostPort();
+      const rdpHostPort = vm.rdpPort || getHostPort();
 
-        // Update VM with assigned ports so frontend can show links
-        if (!vm.webPort || !vm.rdpPort) {
-          await storage.updateVm(id, {
-            webPort: webHostPort,
-            rdpPort: rdpHostPort,
-            username: vm.username || 'bill',
-            password: vm.password || 'gates'
-          });
-        }
+      // Update VM with assigned ports so frontend can show links
+      if (!vm.webPort || !vm.rdpPort) {
+        await storage.updateVm(id, {
+          webPort: webHostPort,
+          rdpPort: rdpHostPort,
+          username: vm.username || 'bill',
+          password: vm.password || 'gates'
+        });
+      }
 
-        let command = vm.customCommand;
-        if (!command) {
-          const customPortMappings = (vm.customPorts || []).map(portStr => {
-            const port = parseInt(portStr);
-            return `-p ${getHostPort()}:${port}`;
-          }).join(' ');
+      let command = vm.customCommand;
+      
+      // If we are using the template (no customCommand or it matches the template pattern)
+      // we regenerate it to ensure custom ports are included.
+      if (!command || command.includes('docker run')) {
+        // First, check if the vm.customCommand already has the mappings we need
+        // This is crucial because the frontend sends the generated command during creation
+        
+        const customPortMappings = (vm.customPorts || []).map((portStr) => {
+          const port = parseInt(portStr);
+          // Try to extract from the SAVED customCommand first
+          const existingMappingMatch = vm.customCommand?.match(new RegExp(`-p (\\d+):${port}(?:\\s|$)`));
+          
+          if (existingMappingMatch) {
+            return `-p ${existingMappingMatch[1]}:${port}`;
+          }
+          
+          // Fallback to a default mapping if not found (shouldn't happen for new VMs if frontend sent it)
+          return `-p ${Math.floor(10000 + Math.random() * 50000)}:${port}`;
+        }).join(' ');
 
-          const username = vm.username || 'bill';
-          const password = vm.password || 'gates';
+        const username = vm.username || 'bill';
+        const password = vm.password || 'gates';
+        const safeName = vm.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        
+        // Use the webPort and rdpPort that were either sent during creation or generated
+        command = `docker run -d --name ${containerName} ` +
+          `-e "VERSION=${vm.version}" ` +
+          `-e RAM_SIZE=${vm.ramSize} ` +
+          `-e CPU_CORES=${vm.cpuCores} ` +
+          `-e DISK_SIZE=${vm.diskSize} ` +
+          `-e USERNAME="${username}" ` +
+          `-e PASSWORD="${password}" ` +
+          `-p ${webHostPort}:8006 ` +
+          `-p ${rdpHostPort}:3389 ` +
+          `${customPortMappings} ` +
+          `--device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN ` +
+          `-v "${vm.storagePath}:/storage" ` +
+          `--stop-timeout 120 docker.io/dockurr/windows`;
 
-          command = `docker run -d --name ${containerName} ` +
-            `-e "VERSION=${vm.version}" ` +
-            `-e RAM_SIZE=${vm.ramSize} ` +
-            `-e CPU_CORES=${vm.cpuCores} ` +
-            `-e DISK_SIZE=${vm.diskSize} ` +
-            `-e USERNAME="${username}" ` +
-            `-e PASSWORD="${password}" ` +
-            `-p ${webHostPort}:8006 ` +
-            `-p ${rdpHostPort}:3389 ` +
-            `${customPortMappings} ` +
-            `--device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN ` +
-            `-v "${vm.storagePath}:/storage" ` +
-            `--stop-timeout 120 docker.io/dockurr/windows`;
-        } else {
-          // Ensure it runs in background and has the correct name for tracking
+        // CRITICAL: If the user provided a customCommand (which the frontend does), we MUST use it 
+        // instead of the one we just generated, because the frontend generated command 
+        // contains the EXACT same random ports it sent us in webPort/rdpPort/customPorts.
+        if (vm.customCommand && vm.customCommand.includes('docker run')) {
+          command = vm.customCommand;
+          // Ensure it runs in background and has the correct name
           if (command.includes('-it')) command = command.replace('-it', '-d');
-          if (!command.includes('--name')) {
+          if (!command.includes(`--name ${containerName}`)) {
             command = command.replace('docker run', `docker run --name ${containerName}`);
           }
-          // Ensure username and password are present in the command if it's based on the template
-          if (!command.includes('USERNAME=')) {
-            const username = vm.username || 'bill';
-            command = command.replace('docker run ', `docker run -e USERNAME="${username}" `);
-          }
-          if (!command.includes('PASSWORD=')) {
-            const password = vm.password || 'gates';
-            command = command.replace('docker run ', `docker run -e PASSWORD="${password}" `);
-          }
         }
+      }
 
-        console.log(`Executing: ${command}`);
-        try {
-          const { stdout, stderr } = await execAsync(command);
-          const output = stdout + stderr;
-          await storage.updateVm(id, { 
-            status: 'running',
-            lastOutput: output
-          });
-        } catch (error: any) {
-          await storage.updateVm(id, { 
-            status: 'error',
-            lastOutput: error.message
-          });
-          throw error;
-        }
-      } else if (action === 'stop') {
+      console.log(`Executing: ${command}`);
+      try {
+        const { stdout, stderr } = await execAsync(command);
+        const output = stdout + stderr;
+        await storage.updateVm(id, { 
+          status: 'running',
+          lastOutput: output
+        });
+      } catch (error: any) {
+        await storage.updateVm(id, { 
+          status: 'error',
+          lastOutput: error.message
+        });
+        throw error;
+      }
+    } else if (action === 'stop') {
         try {
           // Use -t 0 for faster stop if needed, but default is safer
           await execAsync(`docker stop ${containerName}`);

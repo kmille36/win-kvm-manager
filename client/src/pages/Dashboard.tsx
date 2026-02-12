@@ -24,7 +24,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded border border-white/5 font-mono">
-              v1.2.0-stable
+              v1.5.0-release
             </span>
           </div>
         </div>

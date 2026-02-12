@@ -6,15 +6,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save } from "lucide-react";
+import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertVmSchema } from "@shared/schema";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 function VmDetailSkeleton() {
   return (
@@ -34,7 +45,7 @@ export default function VmDetail() {
   const updateVm = useUpdateVm();
 
   // Settings form
-  const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true, username: true, password: true });
+  const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true, username: true, password: true, customPortsString: true });
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema.extend({ 
       cpuCores: z.coerce.number(), 
@@ -42,9 +53,10 @@ export default function VmDetail() {
       diskSize: z.coerce.number(),
       customCommand: z.string().nullable(),
       username: z.string().min(1, "Username is required"),
-      password: z.string().min(1, "Password is required")
+      password: z.string().min(1, "Password is required"),
+      customPortsString: z.string().optional().nullable()
     })),
-    defaultValues: { ramSize: "4", cpuCores: 2, diskSize: "64", customCommand: "", username: "bill", password: "gates" }
+    defaultValues: { ramSize: "4", cpuCores: 2, diskSize: "64", customCommand: "", username: "bill", password: "gates", customPortsString: "" }
   });
 
   // Hydrate form when data loads
@@ -57,6 +69,7 @@ export default function VmDetail() {
         customCommand: vm.customCommand || "",
         username: vm.username || "bill",
         password: vm.password || "gates",
+        customPortsString: vm.customPortsString || "",
       });
     }
   }, [vm, form]);
@@ -67,7 +80,21 @@ export default function VmDetail() {
   const ramSize = /^\d+$/.test(rawRamSize) ? `${rawRamSize}G` : rawRamSize;
   const diskSize = /^\d+$/.test(rawDiskSize) ? `${rawDiskSize}G` : rawDiskSize;
   
-  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 -e VERSION=${vm.version} -e RAM_SIZE=${ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${diskSize} -e USERNAME="${watchAll.username || "bill"}" -e PASSWORD="${watchAll.password || "gates"}" -v ${vm.storagePath}:/storage --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows` : "";
+  const customPorts = (watchAll.customPortsString || "").split(',').map(p => p.trim()).filter(p => p && !isNaN(parseInt(p)));
+  const customPortMappings = customPorts.map((port, idx) => {
+    // Try to extract existing host port from current customCommand if it exists
+    const match = vm?.customCommand?.match(new RegExp(`-p (\\d+):${port}(?:\\s|$)`));
+    if (match) {
+      return `-p ${match[1]}:${port}`;
+    }
+    
+    // Otherwise use stable random-like mapping for preview
+    const hostPort = 10000 + (parseInt(port) * 7 % 89999);
+    if (hostPort < 10000) return `-p ${hostPort + 10000}:${port}`;
+    return `-p ${hostPort}:${port}`;
+  }).join(' ');
+
+  const generatedCommand = vm ? `docker run -d --name ${vm.name} -p ${vm.webPort}:8006 -p ${vm.rdpPort}:3389 ${customPortMappings} -e VERSION=${vm.version} -e RAM_SIZE=${ramSize} -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${diskSize} -e USERNAME="${watchAll.username || "bill"}" -e PASSWORD="${watchAll.password || "gates"}" -v ${vm.storagePath}:/storage --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows` : "";
 
   useEffect(() => {
     const currentCommand = form.getValues('customCommand');
@@ -75,6 +102,8 @@ export default function VmDetail() {
       form.setValue('customCommand', generatedCommand);
     }
   }, [generatedCommand, form, vm]);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   if (isLoading) return <VmDetailSkeleton />;
   if (!vm) return <div className="p-8 text-center">VM not found</div>;
@@ -86,16 +115,24 @@ export default function VmDetail() {
   };
 
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this VM? Data will be lost.")) {
-      deleteVm(id, { onSuccess: () => window.location.href = "/" });
-    }
+    deleteVm(id, { onSuccess: () => window.location.href = "/" });
   };
 
   const onUpdateSubmit = (values: z.infer<typeof formSchema>) => {
     // Ensure G is added automatically
     const ramSize = `${values.ramSize}G`;
     const diskSize = `${values.diskSize}G`;
-    updateVm.mutate({ id, ...values, ramSize, diskSize });
+    
+    // Convert string back to array for storage
+    const customPorts = (values.customPortsString || "").split(',').map(p => p.trim()).filter(p => p && !isNaN(parseInt(p)));
+    
+    updateVm.mutate({ 
+      id, 
+      ...values, 
+      ramSize, 
+      diskSize,
+      customPorts 
+    });
   };
 
   return (
@@ -199,9 +236,11 @@ export default function VmDetail() {
               </Card>
             )}
 
-            <div className="flex justify-between text-sm text-muted-foreground px-1">
-               <span>Access via RDP: <code className="bg-muted px-1 py-0.5 rounded text-primary">{window.location.hostname}:{vm.rdpPort}</code></span>
-               <span>Web Console: <a href={`http://${window.location.hostname}:${vm.webPort}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{window.location.hostname}:{vm.webPort}</a></span>
+            <div className="flex flex-col md:flex-row justify-between text-sm text-muted-foreground px-1 gap-2">
+               <div className="flex flex-wrap gap-x-4 gap-y-1">
+                 <span>RDP: <code className="bg-muted px-1 py-0.5 rounded text-primary">{window.location.hostname}:{vm.rdpPort}</code></span>
+                 <span>Web: <a href={`http://${window.location.hostname}:${vm.webPort}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{window.location.hostname}:{vm.webPort}</a></span>
+               </div>
             </div>
           </TabsContent>
 
@@ -257,6 +296,33 @@ export default function VmDetail() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Custom Port Mappings */}
+                  {vm.customPorts && vm.customPorts.length > 0 && (
+                    <div className="pt-4 space-y-2">
+                      <p className="text-sm text-muted-foreground">Custom Port NAT Mappings:</p>
+                      <div className="grid grid-cols-1 gap-2 text-sm">
+                        {vm.customPorts.map((port) => {
+                          // Extract host port from customCommand
+                          const match = vm.customCommand?.match(new RegExp(`-p (\\d+):${port}(?:\\s|$)`));
+                          const hostPort = match ? match[1] : "??";
+                          return (
+                            <div key={port} className="p-3 bg-secondary rounded border border-white/5 flex justify-between items-center">
+                              <div>
+                                <span className="text-xs text-muted-foreground uppercase mr-2">Host Port</span>
+                                <code className="text-primary font-bold">{hostPort}</code>
+                              </div>
+                              <div className="text-muted-foreground">→</div>
+                              <div>
+                                <span className="text-xs text-muted-foreground uppercase mr-2">VM Port</span>
+                                <code className="text-blue-400 font-bold">{port}</code>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -360,6 +426,23 @@ export default function VmDetail() {
                               </FormItem>
                             )}
                           />
+                          <FormField
+                            control={form.control}
+                            name="customPortsString"
+                            render={({ field }) => (
+                              <FormItem className="md:col-span-2">
+                                <FormLabel>Custom Open Ports</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <HardDrive className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input placeholder="e.g. 80, 443" className="pl-9" {...field} value={field.value || ""} />
+                                  </div>
+                                </FormControl>
+                                <FormDescription>Comma-separated ports to NAT (e.g. 80, 443)</FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                         </div>
 
                           <FormField
@@ -408,15 +491,41 @@ export default function VmDetail() {
                     <p className="text-sm text-muted-foreground mb-4">
                       Deleting this VM will remove the database entry. The underlying storage files may need manual cleanup depending on configuration.
                     </p>
-                    <Button 
-                      variant="destructive" 
-                      className="w-full" 
-                      onClick={handleDelete}
-                      disabled={isDeletePending || isRunning}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" /> 
-                      {isRunning ? "Stop VM to Delete" : "Delete Virtual Machine"}
-                    </Button>
+                    
+                    <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button 
+                          variant="destructive" 
+                          className="w-full" 
+                          disabled={isDeletePending || isRunning}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> 
+                          {isRunning ? "Stop VM to Delete" : "Delete Virtual Machine"}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="border-red-900/50 bg-card">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="flex items-center gap-2 text-red-500">
+                            <AlertTriangle className="h-5 w-5" />
+                            Are you absolutely sure?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the 
+                            <span className="font-bold text-white px-1">"{vm.name}"</span> virtual machine 
+                            and remove all its configuration.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={handleDelete}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            {isDeletePending ? "Deleting..." : "Yes, delete VM"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </CardContent>
                 </Card>
               </div>

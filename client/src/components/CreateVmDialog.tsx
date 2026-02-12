@@ -109,8 +109,6 @@ export function CreateVmDialog() {
       diskSize: 64,
       storagePath: "./windows",
       status: "stopped",
-      webPort: 8006,
-      rdpPort: 3389,
       customCommand: "",
       customPortsString: "",
       customPorts: [],
@@ -129,13 +127,18 @@ export function CreateVmDialog() {
     form.setValue('customPorts', ports);
   }, [watchAll.customPortsString, form]);
 
-  const [randomPorts] = useState({
+  const [randomPorts] = useState(() => ({
     web: Math.floor(10000 + Math.random() * 50000),
     rdp: Math.floor(10000 + Math.random() * 50000),
-    custom: Array.from({ length: 20 }, () => Math.floor(10000 + Math.random() * 50000))
-  });
+    custom: Array.from({ length: 20 }, () => Math.floor(10000 + Math.random() * 89999))
+  }));
 
-  const customPortMappings = (watchAll.customPorts || []).map((port, idx) => `-p ${randomPorts.custom[idx]}:${port}`).join(' ');
+  const customPortMappings = (watchAll.customPorts || []).map((port, idx) => {
+    // We use the stable randomPorts.custom array indexed by the position in the customPorts list
+    const hostPort = randomPorts.custom[idx % randomPorts.custom.length];
+    return `-p ${hostPort}:${port}`;
+  }).join(' ');
+
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
   
@@ -150,7 +153,7 @@ export function CreateVmDialog() {
   }, [generatedCommand, form]);
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    // Inject the random ports into the submission
+    // Inject the sizes into the submission
     const ramSize = `${values.ramSize}G`;
     const diskSize = `${values.diskSize}G`;
     
@@ -160,6 +163,8 @@ export function CreateVmDialog() {
       diskSize,
       webPort: randomPorts.web,
       rdpPort: randomPorts.rdp,
+      customCommand: generatedCommand,
+      customPorts: (values.customPortsString || "").split(',').map(p => p.trim()).filter(p => p && !isNaN(parseInt(p))),
       username: values.username || "bill",
       password: values.password || "gates"
     }, {
@@ -280,40 +285,12 @@ export function CreateVmDialog() {
                 )}
               />
 
-              {/* Storage Path */}
-              <FormField
-                control={form.control}
-                name="storagePath"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Storage Path</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-storage-path">
-                          <SelectValue placeholder="Select path" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="./windows">Default (./windows)</SelectItem>
-                        {paths.map((path) => (
-                          <SelectItem key={path} value={path}>
-                            {path}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Container volume path</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               {/* Custom Ports */}
               <FormField
                 control={form.control}
                 name="customPortsString"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="md:col-span-2">
                     <FormLabel>Custom Open Ports</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g. 80, 443, 8080" {...field} />
@@ -351,6 +328,34 @@ export function CreateVmDialog() {
                       <Input type="password" placeholder="gates" {...field} value={field.value || ""} />
                     </FormControl>
                     <FormDescription>Windows user password</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Storage Path */}
+              <FormField
+                control={form.control}
+                name="storagePath"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Storage Path</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-storage-path">
+                          <SelectValue placeholder="Select path" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="./windows">Default (./windows)</SelectItem>
+                        {paths.map((path) => (
+                          <SelectItem key={path} value={path}>
+                            {path}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Container volume path</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -38,6 +38,12 @@ export const api = {
             free: z.number(),
             usedPercent: z.number(),
           }),
+          network: z.array(z.object({
+            iface: z.string(),
+            operstate: z.string(),
+            rx_sec: z.number(),
+            tx_sec: z.number(),
+          })).optional(),
           uptime: z.number(),
           platform: z.string(),
         }),

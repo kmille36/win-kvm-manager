@@ -12,7 +12,8 @@ export function useHostStats() {
     queryFn: async () => {
       const res = await fetch(api.stats.host.path);
       if (!res.ok) throw new Error("Failed to fetch host stats");
-      return api.stats.host.responses[200].parse(await res.json());
+      const data = await res.json();
+      return api.stats.host.responses[200].parse(data) as any;
     },
     refetchInterval: 5000, // Poll every 5s for realtime stats
   });
@@ -89,13 +90,19 @@ export function useUpdateVm() {
         body: JSON.stringify(updates),
       });
 
-      if (!res.ok) throw new Error("Failed to update VM");
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to update VM");
+      }
       return api.vms.update.responses[200].parse(await res.json());
     },
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: [api.vms.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.vms.get.path, id] });
       toast({ title: "VM Updated", description: "Configuration saved." });
+    },
+    onError: (err) => {
+      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
     },
   });
 }
@@ -108,7 +115,10 @@ export function useDeleteVm() {
     mutationFn: async (id: number) => {
       const url = buildUrl(api.vms.delete.path, { id });
       const res = await fetch(url, { method: api.vms.delete.method });
-      if (!res.ok) throw new Error("Failed to delete VM");
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to delete VM");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.vms.list.path] });
@@ -134,7 +144,10 @@ export function useVmAction() {
         body: JSON.stringify({ action }),
       });
 
-      if (!res.ok) throw new Error(`Failed to ${action} VM`);
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || `Failed to ${action} VM`);
+      }
       return api.vms.action.responses[200].parse(await res.json());
     },
     onSuccess: (data, { action, id }) => {

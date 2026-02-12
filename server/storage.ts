@@ -82,6 +82,10 @@ export class JsonStorage implements IStorage {
       mkdirSync(storagePath, { recursive: true });
     }
 
+    const customPorts = insertVm.customPorts ?? [];
+    const webHostPort = insertVm.webPort ?? 8006;
+    const rdpHostPort = insertVm.rdpPort ?? 3389;
+
     const vm: Vm = {
       id,
       name: insertVm.name,
@@ -92,9 +96,10 @@ export class JsonStorage implements IStorage {
       storagePath: storagePath,
       customCommand: insertVm.customCommand ?? null,
       status: insertVm.status ?? "stopped",
-      webPort: insertVm.webPort ?? 8006,
-      rdpPort: insertVm.rdpPort ?? 3389,
-      customPorts: insertVm.customPorts ?? [],
+      webPort: webHostPort,
+      rdpPort: rdpHostPort,
+      customPorts: customPorts,
+      customPortsString: insertVm.customPortsString ?? null,
       username: insertVm.username ?? "bill",
       password: insertVm.password ?? "gates",
       lastOutput: insertVm.lastOutput ?? null,
