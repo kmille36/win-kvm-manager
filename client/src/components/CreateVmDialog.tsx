@@ -351,6 +351,19 @@ export function CreateVmDialog() {
                 )}
               />
 
+              {/* Storage Path */}
+              <FormItem className="md:col-span-2">
+                <FormLabel>Storage Path (On Host)</FormLabel>
+                <FormControl>
+                  <Input 
+                    readOnly 
+                    className="bg-muted/50 font-mono text-xs" 
+                    value={`${storageBasePath.replace('$(pwd)', '.')}/${safeName}`} 
+                  />
+                </FormControl>
+                <FormDescription>The absolute path where VM disk files will be stored</FormDescription>
+              </FormItem>
+
             </div>
 
             {/* Custom Command */}

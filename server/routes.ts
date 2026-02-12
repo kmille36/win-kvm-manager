@@ -66,7 +66,12 @@ export async function registerRoutes(
       const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
       const storageDir = isWinKvmManagerDir ? join(projectRoot, 'storage') : join(projectRoot, 'win-kvm-manager', 'storage');
       
-      const mainDisk = disk.find(d => storageDir === d.mount || storageDir.startsWith(d.mount)) || disk.find(d => projectRoot.startsWith(d.mount)) || disk[0] || { size: 0, used: 0, available: 0, use: 0 };
+      // Better detection of the correct mount point for the project/storage
+      const mainDisk = disk.find(d => storageDir === d.mount) || 
+                       disk.sort((a, b) => b.mount.length - a.mount.length)
+                           .find(d => storageDir.startsWith(d.mount) || projectRoot.startsWith(d.mount)) || 
+                       disk[0] || 
+                       { size: 0, used: 0, available: 0, use: 0 };
 
       // Get current network throughput
       const netThroughput = await si.networkStats();
@@ -147,7 +152,10 @@ export async function registerRoutes(
       const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
       const storageDir = isWinKvmManagerDir ? join(projectRoot, 'storage') : join(projectRoot, 'win-kvm-manager', 'storage');
 
-      const mainDisk = diskSizes.find(d => storageDir === d.mount || storageDir.startsWith(d.mount)) || diskSizes.find(d => projectRoot.startsWith(d.mount)) || diskSizes[0] || { available: 0 };
+      const mainDisk = diskSizes.find(d => storageDir === d.mount) || 
+                       diskSizes.sort((a, b) => b.mount.length - a.mount.length)
+                                .find(d => storageDir.startsWith(d.mount) || projectRoot.startsWith(d.mount)) || 
+                       diskSizes[0] || { available: 0 };
       
       const parseToBytes = (s: string) => {
         const m = s.match(/^(\d+)([GM])$/i);
@@ -227,7 +235,10 @@ export async function registerRoutes(
         const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
         const storageDir = isWinKvmManagerDir ? join(projectRoot, 'storage') : join(projectRoot, 'win-kvm-manager', 'storage');
 
-        const mainDisk = diskSizes.find(d => storageDir === d.mount || storageDir.startsWith(d.mount)) || diskSizes.find(d => projectRoot.startsWith(d.mount)) || diskSizes[0] || { available: 0 };
+        const mainDisk = diskSizes.find(d => storageDir === d.mount) || 
+                         diskSizes.sort((a, b) => b.mount.length - a.mount.length)
+                                  .find(d => storageDir.startsWith(d.mount) || projectRoot.startsWith(d.mount)) || 
+                         diskSizes[0] || { available: 0 };
         
         const parseToBytes = (s: string) => {
           const m = s.match(/^(\d+)([GM])$/i);
