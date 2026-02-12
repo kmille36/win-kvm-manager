@@ -298,7 +298,7 @@ export async function registerRoutes(
         const getHostPort = () => {
           let hostPort: number;
           do {
-            hostPort = Math.floor(Math.random() * (60000 - 10000 + 1)) + 10000;
+            hostPort = Math.floor(Math.random() * (65535 - 10000 + 1)) + 10000;
           } while (usedPorts.has(hostPort));
           usedPorts.add(hostPort);
           return hostPort;
@@ -335,7 +335,7 @@ export async function registerRoutes(
           }
           
           // Fallback to a default mapping if not found (shouldn't happen for new VMs if frontend sent it)
-          return `-p ${Math.floor(10000 + Math.random() * 50000)}:${port}`;
+          return `-p ${Math.floor(Math.random() * (65535 - 10000 + 1)) + 10000}:${port}`;
         }).join(' ');
 
         const username = vm.username || 'bill';

@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDrive, Cpu, Save, AlertTriangle, Copy, Check } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,6 +15,7 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +27,37 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast({
+        title: "Copied!",
+        description: "Value copied to clipboard.",
+        duration: 2000,
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy!", err);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 text-muted-foreground hover:text-primary"
+      onClick={handleCopy}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+    </Button>
+  );
+}
 
 function VmDetailSkeleton() {
   return (
@@ -283,39 +315,86 @@ export default function VmDetail() {
                       Connect using any RDP client to port <span className="font-mono font-bold">{vm.rdpPort}</span>
                     </AlertDescription>
                   </Alert>
+
                   <div className="pt-4 space-y-2">
-                    <p className="text-sm text-muted-foreground">Default Credentials (if fresh install):</p>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="p-3 bg-secondary rounded border border-white/5">
-                        <span className="block text-xs text-muted-foreground uppercase mb-1">Username</span>
-                        <code className="text-primary">{vm.username || "bill"}</code>
+                    <p className="text-sm text-muted-foreground">Network Address:</p>
+                    <div className="p-3 bg-secondary rounded border border-white/5 flex items-center justify-between">
+                      <div className="flex-1">
+                        <span className="block text-xs text-muted-foreground uppercase mb-1">IP / Hostname</span>
+                        <code className="text-primary">{window.location.hostname}</code>
                       </div>
-                      <div className="p-3 bg-secondary rounded border border-white/5">
-                        <span className="block text-xs text-muted-foreground uppercase mb-1">Password</span>
-                        <code className="text-primary">{vm.password || "gates"}</code>
+                      <CopyButton value={window.location.hostname} />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 space-y-2">
+                    <p className="text-sm text-muted-foreground">Default Credentials (if fresh install):</p>
+                    <div className="grid grid-cols-1 gap-2 text-sm">
+                      <div className="p-3 bg-secondary rounded border border-white/5 flex items-center justify-between">
+                        <div className="flex-1">
+                          <span className="block text-xs text-muted-foreground uppercase mb-1">Username</span>
+                          <code className="text-primary">{vm.username || "bill"}</code>
+                        </div>
+                        <CopyButton value={vm.username || "bill"} />
+                      </div>
+                      <div className="p-3 bg-secondary rounded border border-white/5 flex items-center justify-between">
+                        <div className="flex-1">
+                          <span className="block text-xs text-muted-foreground uppercase mb-1">Password</span>
+                          <code className="text-primary">{vm.password || "gates"}</code>
+                        </div>
+                        <CopyButton value={vm.password || "gates"} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 space-y-2">
+                    <p className="text-sm text-muted-foreground">Connection Ports:</p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="p-3 bg-secondary rounded border border-white/5 flex items-center justify-between">
+                        <div className="flex-1">
+                          <span className="block text-xs text-muted-foreground uppercase mb-1">Web Port</span>
+                          <code className="text-primary">{vm.webPort}</code>
+                        </div>
+                        <CopyButton value={String(vm.webPort)} />
+                      </div>
+                      <div className="p-3 bg-secondary rounded border border-white/5 flex items-center justify-between">
+                        <div className="flex-1">
+                          <span className="block text-xs text-muted-foreground uppercase mb-1">RDP Port</span>
+                          <code className="text-primary">{vm.rdpPort}</code>
+                        </div>
+                        <CopyButton value={String(vm.rdpPort)} />
                       </div>
                     </div>
                   </div>
 
                   {/* Custom Port Mappings */}
                   {vm.customPorts && vm.customPorts.length > 0 && (
-                    <div className="pt-4 space-y-2">
+                    <div className="pt-2 space-y-2">
                       <p className="text-sm text-muted-foreground">Custom Port NAT Mappings:</p>
                       <div className="grid grid-cols-1 gap-2 text-sm">
                         {vm.customPorts.map((port) => {
                           // Extract host port from customCommand
                           const match = vm.customCommand?.match(new RegExp(`-p (\\d+):${port}(?:\\s|$)`));
                           const hostPort = match ? match[1] : "??";
+                          const fullAddress = `${window.location.hostname}:${hostPort}`;
                           return (
-                            <div key={port} className="p-3 bg-secondary rounded border border-white/5 flex justify-between items-center">
-                              <div>
-                                <span className="text-xs text-muted-foreground uppercase mr-2">Host Port</span>
-                                <code className="text-primary font-bold">{hostPort}</code>
+                            <div key={port} className="p-3 bg-secondary rounded border border-white/5 flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-4">
+                                  <div>
+                                    <span className="text-xs text-muted-foreground uppercase mr-2">Host</span>
+                                    <code className="text-primary font-bold">{hostPort}</code>
+                                  </div>
+                                  <div className="text-muted-foreground">→</div>
+                                  <div>
+                                    <span className="text-xs text-muted-foreground uppercase mr-2">VM</span>
+                                    <code className="text-blue-400 font-bold">{port}</code>
+                                  </div>
+                                </div>
+                                <CopyButton value={fullAddress} />
                               </div>
-                              <div className="text-muted-foreground">→</div>
-                              <div>
-                                <span className="text-xs text-muted-foreground uppercase mr-2">VM Port</span>
-                                <code className="text-blue-400 font-bold">{port}</code>
+                              <div className="text-[10px] text-muted-foreground font-mono truncate">
+                                {fullAddress}
                               </div>
                             </div>
                           );

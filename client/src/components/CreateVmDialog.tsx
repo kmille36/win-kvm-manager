@@ -96,7 +96,11 @@ export function CreateVmDialog() {
       return requested <= hostStats.disk.free;
     }, { message: `Cannot exceed available host disk space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
     customCommand: z.string().nullable().optional(),
-    customPortsString: z.string().optional(),
+    customPortsString: z.string().optional().refine(val => {
+      if (!val) return true;
+      const ports = val.split(',').map(p => p.trim());
+      return ports.every(p => !isNaN(parseInt(p)) && parseInt(p) >= 1 && parseInt(p) <= 65535);
+    }, { message: "Ports must be between 1 and 65535" }),
   });
 
   const form = useForm<z.infer<typeof formSchema>>({
