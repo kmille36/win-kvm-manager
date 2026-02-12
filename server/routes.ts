@@ -7,7 +7,7 @@ import { z } from "zod";
 import si from "systeminformation";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { join } from "path";
+import path, { join } from "path";
 
 const execAsync = promisify(exec);
 
@@ -177,26 +177,26 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
       }
 
-      // Handle cloning folder if cloneFromId is provided
+      // Handle cloning if cloneFromId is provided
       if (cloneFromId) {
-        const sourceVm = await storage.getVm(Number(cloneFromId));
-        if (sourceVm) {
-          const sourceSafeName = sourceVm.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-          const targetSafeName = input.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-          
-          const sourceBasePath = (sourceVm.storagePath === "./windows" || !sourceVm.storagePath) ? "./storage" : sourceVm.storagePath;
-          const targetBasePath = (input.storagePath === "./windows" || !input.storagePath) ? "./storage" : input.storagePath;
-          
-          const sourceDir = `${sourceBasePath}/${sourceSafeName}`;
-          const targetDir = `${targetBasePath}/${targetSafeName}`;
-          
-          try {
-            console.log(`Cloning VM folder from ${sourceDir} to ${targetDir}`);
-            await execAsync(`mkdir -p "${targetBasePath}" && cp -r "${sourceDir}" "${targetDir}"`);
-          } catch (e) {
-            console.error("Failed to copy VM storage folder:", e);
-            // We proceed anyway, but the VM might not have its data
-          }
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        const sendProgress = (percent: number, data?: any) => {
+          res.write(`data: ${JSON.stringify({ percent, data })}\n\n`);
+        };
+
+        try {
+          const vm = await storage.cloneVm(Number(cloneFromId), input, (percent) => {
+            sendProgress(percent);
+          });
+          sendProgress(100, vm);
+          return res.end();
+        } catch (error: any) {
+          console.error("Cloning error in route:", error);
+          res.write(`data: ${JSON.stringify({ error: error.message || 'Unknown internal error during cloning' })}\n\n`);
+          return res.end();
         }
       }
 

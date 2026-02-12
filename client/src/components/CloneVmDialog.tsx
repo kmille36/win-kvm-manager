@@ -60,6 +60,10 @@ interface CloneVmDialogProps {
   children: React.ReactNode;
 }
 
+import { Progress } from "@/components/ui/progress";
+import { AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
   const [open, setOpen] = useState(false);
   const createVm = useCreateVm();
@@ -161,15 +165,33 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
 
   const safeName = (watchAll.name || "windows").toLowerCase().replace(/[^a-z0-9]/g, '-');
   const storageBasePath = (watchAll.storagePath === "./windows" || !watchAll.storagePath) ? "$(pwd)/storage" : watchAll.storagePath;
-  
+
+  const storagePreviewPath = (() => {
+    const base = storageBasePath.replace('$(pwd)', '.');
+    if (base.endsWith(vm.name)) {
+      // If the base path ends with the original VM name, it's likely a subfolder
+      // We want to replace the last segment with safeName
+      const parts = base.split('/');
+      parts[parts.length - 1] = safeName;
+      return parts.join('/');
+    }
+    return `${base}/${safeName}`;
+  })();
+
   const generatedCommand = `docker run -d --name ${watchAll.name || "windows"} -p ${randomPorts.web}:8006 -p ${randomPorts.rdp}:3389 ${customPortMappings} -e VERSION=${watchAll.version} -e RAM_SIZE=${watchAll.ramSize}G -e CPU_CORES=${watchAll.cpuCores} -e DISK_SIZE=${watchAll.diskSize}G -e USERNAME="${watchAll.username}" -e PASSWORD="${watchAll.password}" -v "${storageBasePath}/${safeName}:/storage" --device=/dev/kvm --device=/dev/net/tun --cap-add NET_ADMIN dockurr/windows`;
 
   useEffect(() => {
     form.setValue("customCommand", generatedCommand);
   }, [generatedCommand, form]);
 
+  const [cloningProgress, setCloningProgress] = useState<number | null>(null);
+  const [cloningError, setCloningError] = useState<string | null>(null);
+
   function onSubmit(values: z.infer<typeof formSchema>) {
-    createVm.mutate({
+    setCloningProgress(0);
+    setCloningError(null);
+
+    const payload = {
       ...values,
       ramSize: `${values.ramSize}G`,
       diskSize: `${values.diskSize}G`,
@@ -177,13 +199,74 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
       rdpPort: randomPorts.rdp,
       customCommand: generatedCommand,
       customPorts: (values.customPortsString || "").split(',').map(p => p.trim()).filter(p => p && !isNaN(parseInt(p))),
-      // Pass cloneFromId to tell backend to copy folder
       cloneFromId: vm.id
-    } as any, {
-      onSuccess: () => {
-        setOpen(false);
-        form.reset();
-      },
+    };
+
+    fetch('/api/vms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(async response => {
+      if (!response.ok) {
+        let errorMessage = 'Failed to start cloning';
+        try {
+          const err = await response.json();
+          errorMessage = err.message || `Error ${response.status}: ${response.statusText}`;
+        } catch (e) {
+          errorMessage = `Error ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Failed to read progress');
+
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(trimmed.slice(6));
+              const { percent, data, error } = parsed;
+              
+              if (error) {
+                throw new Error(error);
+              }
+              
+              if (percent !== undefined) {
+                setCloningProgress(percent);
+              }
+              
+              if (data) {
+                setOpen(false);
+                setCloningProgress(null);
+                form.reset();
+                import('@/lib/queryClient').then(({ queryClient }) => {
+                  queryClient.invalidateQueries({ queryKey: [api.vms.list.path] });
+                });
+                return;
+              }
+            } catch (e: any) {
+              console.error("Error parsing SSE line:", trimmed, e);
+              if (e.message) throw e;
+            }
+          }
+        }
+      }
+    }).catch(err => {
+      console.error("Cloning error:", err);
+      setCloningError(err.message || 'An unexpected error occurred during cloning');
+      setCloningProgress(null);
+      // Ensure the dialog stays open if there's an error so the user can see it
+      setOpen(true);
     });
   }
 
@@ -202,6 +285,29 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
             Configure your cloned instance. This will copy the storage from "{vm.name}".
           </DialogDescription>
         </DialogHeader>
+
+        {cloningProgress !== null && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="w-full max-w-md p-6 bg-card border border-border rounded-lg shadow-lg space-y-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                Cloning Virtual Machine...
+              </h3>
+              <Progress value={cloningProgress} className="h-2" />
+              <p className="text-sm text-muted-foreground text-center">
+                Copying files: {cloningProgress}%
+              </p>
+            </div>
+          </div>
+        )}
+
+        {cloningError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{cloningError}</AlertDescription>
+          </Alert>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
@@ -280,7 +386,7 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
                   <Input 
                     readOnly 
                     className="bg-muted/50 font-mono text-xs" 
-                    value={`${storageBasePath.replace('$(pwd)', '.')}/${safeName}`} 
+                    value={storagePreviewPath} 
                   />
                 </FormControl>
                 <FormDescription>The absolute path where VM disk files will be stored</FormDescription>
