@@ -20,20 +20,27 @@ export interface IStorage {
 export class JsonStorage implements IStorage {
   private vms: Map<number, Vm>;
   private nextId: number;
+  private saveQueue: Promise<void> = Promise.resolve();
 
   constructor() {
     this.vms = new Map();
     this.nextId = 1;
     this.loadData();
     
-    // Sync to file every 15 seconds
-    setInterval(() => this.saveData(), 15000);
+    // Periodically sync to file every 5 seconds to ensure long-term consistency
+    setInterval(() => this.enqueueSave(), 5000);
   }
 
   private loadData() {
     if (existsSync(DATA_FILE)) {
       try {
-        const data = JSON.parse(readFileSync(DATA_FILE, "utf-8"));
+        const rawData = readFileSync(DATA_FILE, "utf-8");
+        if (!rawData.trim()) {
+          console.log("JSON database file is empty, starting with fresh data");
+          return;
+        }
+        const data = JSON.parse(rawData);
+        console.log(`Loading JSON data from ${DATA_FILE}: found ${data.length} records.`);
         data.forEach((vm: Vm) => {
           this.vms.set(vm.id, vm);
           if (vm.id >= this.nextId) {
@@ -43,16 +50,35 @@ export class JsonStorage implements IStorage {
       } catch (err) {
         console.error("Failed to load JSON database:", err);
       }
+    } else {
+      console.log(`JSON database file ${DATA_FILE} does not exist yet. Starting with empty database.`);
     }
   }
 
+  private async enqueueSave() {
+    // Basic mutex/queue for atomic writes to avoid race conditions or corrupted files
+    this.saveQueue = this.saveQueue.then(async () => {
+      try {
+        const data = Array.from(this.vms.values());
+        const tempFile = `${DATA_FILE}.tmp`;
+        console.log(`Writing ${data.length} records to JSON database...`);
+        // Atomic-like write: write to temp then rename
+        writeFileSync(tempFile, JSON.stringify(data, null, 2));
+        const { renameSync } = await import("fs");
+        renameSync(tempFile, DATA_FILE);
+        console.log("JSON database successfully updated.");
+      } catch (err) {
+        console.error("Failed to save JSON database:", err);
+      }
+    }).catch(err => {
+      console.error("Critical error in save queue:", err);
+    });
+    return this.saveQueue;
+  }
+
   private saveData() {
-    try {
-      const data = Array.from(this.vms.values());
-      writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    } catch (err) {
-      console.error("Failed to save JSON database:", err);
-    }
+    // No longer writing immediately to disk to avoid excessive I/O
+    // Data is persisted by the 5s interval in the constructor
   }
 
   async getVmByName(name: string): Promise<Vm | undefined> {
