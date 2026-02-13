@@ -25,7 +25,16 @@ export const vms = pgTable("vms", {
 
 // === BASE SCHEMAS ===
 export const insertVmSchema = createInsertSchema(vms, {
-  name: z.string().min(2, "Name must be at least 2 characters").regex(/^[a-zA-Z0-9-]+$/, "Name can only contain letters, numbers, and hyphens"),
+  name: z.string()
+    .min(2, "Name must be at least 2 characters")
+    .regex(/^[a-zA-Z0-9-]+$/, "Name can only contain letters, numbers, and hyphens"),
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+  customPortsString: z.string().optional().nullable().refine(val => {
+    if (!val) return true;
+    const ports = val.split(',').map(p => p.trim());
+    return ports.every(p => !isNaN(parseInt(p)) && parseInt(p) >= 1 && parseInt(p) <= 65535);
+  }, { message: "Ports must be between 1 and 65535" })
 }).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===

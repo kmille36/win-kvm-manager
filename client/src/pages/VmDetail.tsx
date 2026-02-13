@@ -102,11 +102,19 @@ export default function VmDetail() {
     resolver: zodResolver(formSchema.extend({ 
       cpuCores: z.coerce.number(), 
       ramSize: z.coerce.number(),
-      diskSize: z.coerce.number(),
+      diskSize: z.coerce.number().refine(val => {
+        if (!vm) return true;
+        const currentSize = parseInt(String(vm.diskSize).replace("G", "")) || 0;
+        return val >= currentSize;
+      }, { message: `Disk size cannot be smaller than current size (${vm?.diskSize})` }),
       customCommand: z.string().nullable(),
       username: z.string().min(1, "Username is required"),
       password: z.string().min(1, "Password is required"),
-      customPortsString: z.string().optional().nullable()
+      customPortsString: z.string().optional().nullable().refine(val => {
+        if (!val) return true;
+        const ports = val.split(',').map(p => p.trim());
+        return ports.every(p => !isNaN(parseInt(p)) && parseInt(p) >= 1 && parseInt(p) <= 65535);
+      }, { message: "Ports must be between 1 and 65535" })
     })),
     defaultValues: { ramSize: "4", cpuCores: 2, diskSize: "64", customCommand: "", username: "bill", password: "gates", customPortsString: "" }
   });
@@ -470,7 +478,15 @@ export default function VmDetail() {
                                 <FormControl>
                                   <div className="relative">
                                     <Settings className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input type="number" className="pl-9" {...field} />
+                                    <Input 
+                                      type="number" 
+                                      className="pl-9" 
+                                      {...field} 
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9]/g, '');
+                                        field.onChange(val);
+                                      }}
+                                    />
                                   </div>
                                 </FormControl>
                                 <FormMessage />
@@ -486,7 +502,15 @@ export default function VmDetail() {
                                 <FormControl>
                                   <div className="relative">
                                     <HardDrive className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input type="number" className="pl-9" {...field} />
+                                    <Input 
+                                      type="number" 
+                                      className="pl-9" 
+                                      {...field} 
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9]/g, '');
+                                        field.onChange(val);
+                                      }}
+                                    />
                                   </div>
                                 </FormControl>
                                 <FormMessage />
@@ -534,10 +558,16 @@ export default function VmDetail() {
                                 <FormControl>
                                   <div className="relative">
                                     <HardDrive className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input placeholder="e.g. 80, 443" className="pl-9" {...field} value={field.value || ""} />
+                                    <Input 
+                                      placeholder="e.g. 80,443" 
+                                      className="pl-9" 
+                                      {...field} 
+                                      value={field.value || ""} 
+                                      onChange={(e) => field.onChange(e.target.value.replace(/[^0-9,]/g, ''))}
+                                    />
                                   </div>
                                 </FormControl>
-                                <FormDescription>Comma-separated ports to NAT (e.g. 80, 443)</FormDescription>
+                                <FormDescription>Comma-separated ports to NAT (e.g. 80,443)</FormDescription>
                                 <FormMessage />
                               </FormItem>
                             )}

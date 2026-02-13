@@ -101,7 +101,11 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
       if (!hostStats) return true;
       const requested = val * 1024 * 1024 * 1024;
       return requested <= hostStats.disk.free;
-    }, { message: `Cannot exceed available host disk space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
+    }, { message: `Cannot exceed available host disk space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB free)` })
+    .refine(val => {
+      const currentDiskSize = parseToGB(vm.diskSize);
+      return val >= currentDiskSize;
+    }, { message: `Disk size must be at least the size of the source VM (${parseToGB(vm.diskSize)}GB)` }),
     customCommand: z.string().nullable().optional(),
     customPortsString: z.string().optional().refine(val => {
       if (!val) return true;
@@ -345,7 +349,14 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
                   <FormItem>
                     <FormLabel>RAM Size (GB)</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} />
+                      <Input 
+                        type="number" 
+                        {...field} 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          field.onChange(val);
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -358,7 +369,14 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
                   <FormItem>
                     <FormLabel>Disk Size (GB)</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} />
+                      <Input 
+                        type="number" 
+                        {...field} 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          field.onChange(val);
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -371,9 +389,13 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
                   <FormItem className="md:col-span-2">
                     <FormLabel>Custom Open Ports</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. 80, 443, 8080" {...field} />
+                      <Input 
+                        placeholder="e.g. 80, 443, 8080" 
+                        {...field} 
+                        onChange={(e) => field.onChange(e.target.value.replace(/[^0-9,]/g, ''))}
+                      />
                     </FormControl>
-                    <FormDescription>Comma-separated ports to NAT (e.g. 80, 443)</FormDescription>
+                    <FormDescription>Comma-separated ports to NAT (e.g. 80,443)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

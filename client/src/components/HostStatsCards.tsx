@@ -68,7 +68,7 @@ export function HostStatsCards() {
   };
 
   // Find primary network interface (the one with traffic or 'up' state)
-  const primaryNet = stats.network?.find(n => n.operstate === 'up') || stats.network?.[0];
+  const primaryNet = stats.network?.find((n: any) => n.operstate === 'up') || stats.network?.[0];
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">

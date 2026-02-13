@@ -61,6 +61,12 @@ export async function registerRoutes(
         si.networkInterfaceDefault()
       ]);
 
+      // Calculate "Available" memory (Active memory) which is a more accurate representation of "Used"
+      // on Linux systems where free memory includes buffers/cache.
+      // si.mem().active is often a better "Used" metric for users.
+      const usedMemory = mem.active;
+      const usedPercent = (usedMemory / mem.total) * 100;
+
       // Use the filesystem where the data is stored
       const projectRoot = process.cwd();
       const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
@@ -87,9 +93,9 @@ export async function registerRoutes(
         },
         mem: {
           total: mem.total,
-          free: mem.free,
-          used: mem.used,
-          usedPercent: (mem.used / mem.total) * 100,
+          free: mem.available, // Use 'available' instead of 'free' as it accounts for cache
+          used: usedMemory,
+          usedPercent: usedPercent,
         },
         disk: {
           total: mainDisk.size,
@@ -173,11 +179,45 @@ export async function registerRoutes(
       if (input.cpuCores && input.cpuCores > cpu.cores) {
         return res.status(400).json({ message: `Insufficient CPU cores (available: ${cpu.cores})` });
       }
-      if (input.ramSize && parseToBytes(input.ramSize) > mem.free) {
-        return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024)}MB)` });
+
+      // Memory validation: ensure RAM does not exceed host RAM
+      if (input.ramSize) {
+        const requestedRam = parseToBytes(input.ramSize);
+        if (requestedRam > mem.free) {
+          return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024 / 1024)}GB free)` });
+        }
       }
-      if (input.diskSize && parseToBytes(input.diskSize) > mainDisk.available) {
-        return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
+
+      // Disk size validation: check if smaller than source VM if cloning
+      if (cloneFromId) {
+        const sourceVm = await storage.getVm(Number(cloneFromId));
+        if (sourceVm && input.diskSize) {
+          const sourceSize = parseToBytes(sourceVm.diskSize);
+          const requestedSize = parseToBytes(input.diskSize);
+          if (requestedSize < sourceSize) {
+            return res.status(400).json({ message: `Disk size must be at least the size of the source VM (${sourceVm.diskSize})` });
+          }
+        }
+      }
+
+      // Disk validation: ensure disk does not exceed host free space
+      if (input.diskSize) {
+        const requestedDisk = parseToBytes(input.diskSize);
+        if (requestedDisk > mainDisk.available) {
+          return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024 / 1024)}GB free)` });
+        }
+      }
+
+      // Port validation
+      if (input.customPortsString) {
+        const ports = input.customPortsString.split(',').map(p => p.trim());
+        const allValid = ports.every(p => {
+          const port = parseInt(p);
+          return !isNaN(port) && port >= 1 && port <= 65535;
+        });
+        if (!allValid) {
+          return res.status(400).json({ message: "Ports must be between 1 and 65535" });
+        }
       }
 
       // Handle cloning if cloneFromId is provided
@@ -260,11 +300,36 @@ export async function registerRoutes(
         // When updating, we should technically account for the resources already assigned to this VM 
         // if the VM is running, but since the container is stopped/removed during update, 
         // the resources will be "freed" anyway.
-        if (input.ramSize && parseToBytes(input.ramSize) > mem.free) {
-          return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024)}MB)` });
+        if (input.ramSize) {
+          const requestedRam = parseToBytes(input.ramSize);
+          if (requestedRam > mem.free) {
+            return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024 / 1024)}GB free)` });
+          }
         }
-        if (input.diskSize && parseToBytes(input.diskSize) > mainDisk.available) {
-          return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024)}MB)` });
+
+        // Disk size validation for update: check if smaller than current size
+        if (input.diskSize) {
+          const currentSize = parseToBytes(oldVm.diskSize);
+          const requestedSize = parseToBytes(input.diskSize);
+          if (requestedSize < currentSize) {
+            return res.status(400).json({ message: `Disk size cannot be smaller than current size (${oldVm.diskSize})` });
+          }
+          
+          if (requestedSize > mainDisk.available) {
+            return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024 / 1024)}GB free)` });
+          }
+        }
+
+        // Port validation
+        if (input.customPortsString) {
+          const ports = input.customPortsString.split(',').map(p => p.trim());
+          const allValid = ports.every(p => {
+            const port = parseInt(p);
+            return !isNaN(port) && port >= 1 && port <= 65535;
+          });
+          if (!allValid) {
+            return res.status(400).json({ message: "Ports must be between 1 and 65535" });
+          }
         }
       }
 
@@ -465,6 +530,8 @@ async function seedDatabase() {
   if (existingVms.length === 0) {
     await storage.createVm({
       name: "Windows 11 Dev",
+      username: "bill",
+      password: "gates",
       version: "11",
       ramSize: "8G",
       cpuCores: 4,
@@ -476,6 +543,8 @@ async function seedDatabase() {
     });
     await storage.createVm({
       name: "Legacy XP",
+      username: "bill",
+      password: "gates",
       version: "xp",
       ramSize: "2G",
       cpuCores: 1,

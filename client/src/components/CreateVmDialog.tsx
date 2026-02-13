@@ -263,7 +263,7 @@ export function CreateVmDialog() {
                   <FormItem>
                     <FormLabel>CPU Cores</FormLabel>
                     <FormControl>
-                      <Input type="number" min={1} max={32} {...field} />
+                      <Input type="number" min={1} {...field} />
                     </FormControl>
                     <FormDescription>Physical cores to allocate</FormDescription>
                     <FormMessage />
@@ -279,7 +279,15 @@ export function CreateVmDialog() {
                   <FormItem>
                     <FormLabel>RAM Size</FormLabel>
                     <FormControl>
-                      <Input placeholder="4" {...field} />
+                      <Input 
+                        type="number"
+                        placeholder="4" 
+                        {...field} 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          field.onChange(val);
+                        }}
+                      />
                     </FormControl>
                     <FormDescription>Memory to allocate in GB (e.g. 4 for 4GB)</FormDescription>
                     <FormMessage />
@@ -295,7 +303,15 @@ export function CreateVmDialog() {
                   <FormItem>
                     <FormLabel>Disk Size</FormLabel>
                     <FormControl>
-                      <Input placeholder="64" {...field} />
+                      <Input 
+                        type="number"
+                        placeholder="64" 
+                        {...field} 
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          field.onChange(val);
+                        }}
+                      />
                     </FormControl>
                     <FormDescription>Allocated C: drive space in GB (e.g. 64 for 64GB)</FormDescription>
                     <FormMessage />
@@ -311,9 +327,13 @@ export function CreateVmDialog() {
                   <FormItem className="md:col-span-2">
                     <FormLabel>Custom Open Ports</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. 80, 443, 8080" {...field} />
+                      <Input 
+                        placeholder="e.g. 80, 443, 8080" 
+                        {...field} 
+                        onChange={(e) => field.onChange(e.target.value.replace(/[^0-9,]/g, ''))}
+                      />
                     </FormControl>
-                    <FormDescription>Comma-separated ports to NAT (e.g. 80, 443)</FormDescription>
+                    <FormDescription>Comma-separated ports to NAT (e.g. 80,443)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
