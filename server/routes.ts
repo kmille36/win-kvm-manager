@@ -130,10 +130,23 @@ export async function registerRoutes(
       },
       logger: console,
       on: {
+        proxyReq: (proxyReq, req, res) => {
+          // Fix for "Invalid frame header" issue by ensuring connection headers are handled correctly
+          if (req.headers.upgrade === 'websocket') {
+            proxyReq.setHeader('Connection', 'Upgrade');
+            proxyReq.setHeader('Upgrade', 'websocket');
+          }
+        },
         error: (err: any, req: any, res: any) => {
           console.error(`Proxy error for port ${port}:`, err);
           if (!res.headersSent) {
-            res.status(500).send('Proxy error');
+            // Check if res.status is a function before calling it
+            if (typeof res.status === 'function') {
+              res.status(500).send('Proxy error');
+            } else if (res.writeHead) {
+              res.writeHead(500);
+              res.end('Proxy error');
+            }
           }
         }
       }
