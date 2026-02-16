@@ -10,13 +10,15 @@ import { ArrowLeft, Play, Square, RefreshCw, Trash2, Monitor, Settings, HardDriv
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertVmSchema } from "@shared/schema";
+import { insertVmSchema, type HostStatsResponse } from "@shared/schema";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CloneVmDialog } from "@/components/CloneVmDialog";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@shared/routes";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,12 +98,23 @@ export default function VmDetail() {
   const { mutate: deleteVm, isPending: isDeletePending } = useDeleteVm();
   const updateVm = useUpdateVm();
 
+  const { data: hostStats } = useQuery<HostStatsResponse>({
+    queryKey: [api.stats.host.path],
+  });
+
   // Settings form
   const formSchema = insertVmSchema.pick({ ramSize: true, cpuCores: true, diskSize: true, customCommand: true, username: true, password: true, customPortsString: true });
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema.extend({ 
-      cpuCores: z.coerce.number(), 
-      ramSize: z.coerce.number(),
+      cpuCores: z.coerce.number().refine(val => {
+        if (!hostStats) return true;
+        return val <= hostStats.cpu.cores;
+      }, { message: `Cannot exceed host CPU cores (${hostStats?.cpu.cores || 'loading...'})` }), 
+      ramSize: z.coerce.number().refine(val => {
+        if (!hostStats) return true;
+        const requested = val * 1024 * 1024 * 1024;
+        return requested <= hostStats.mem.free;
+      }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
       diskSize: z.coerce.number().refine(val => {
         if (!vm) return true;
         const currentSize = parseInt(String(vm.diskSize).replace("G", "")) || 0;
