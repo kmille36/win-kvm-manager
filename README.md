@@ -1,4 +1,4 @@
-Clone this repo.
+Clone this repo, then run these command below one by one
 
 Can try in Github Codespaces by cd /tmp (default directory not enough storage for windows files)
 
