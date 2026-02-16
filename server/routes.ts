@@ -118,59 +118,70 @@ export async function registerRoutes(
     }
   });
 
-  // Proxy for VM Console
-  app.use('/proxy/:port', (req, res, next) => {
-    const port = req.params.port;
-    return createProxyMiddleware({
-      target: `http://127.0.0.1:${port}`,
-      changeOrigin: true,
-      ws: true,
-      xfwd: true,
-      pathRewrite: {
-        [`^/proxy/${port}`]: '',
-      },
-      headers: {
-        'Connection': 'Upgrade',
-        'Upgrade': 'websocket'
-      },
-      logger: console,
-      on: {
-        proxyReq: (proxyReq, req, res) => {
-          // Replit/Proxy specific: ensure the host header is set correctly for the internal target
-          proxyReq.setHeader('Host', '127.0.0.1');
-          if (req.headers.upgrade === 'websocket') {
-            proxyReq.setHeader('Connection', 'Upgrade');
-            proxyReq.setHeader('Upgrade', 'websocket');
-          }
-        },
-        proxyReqWs: (proxyReq, req, socket, options, head) => {
-          // Explicitly handle WebSocket upgrade requests
+  // Create a single proxy instance to handle all VM ports
+  const proxy = createProxyMiddleware({
+    target: 'http://127.0.0.1', // Default, will be overridden by router
+    router: (req) => {
+      const match = req.url?.match(/^\/proxy\/(\d+)/);
+      if (match) {
+        return `http://127.0.0.1:${match[1]}`;
+      }
+      return undefined;
+    },
+    changeOrigin: true,
+    ws: true,
+    xfwd: true,
+    pathRewrite: (path) => {
+      return path.replace(/^\/proxy\/\d+/, '');
+    },
+    headers: {
+      'Connection': 'Upgrade',
+      'Upgrade': 'websocket'
+    },
+    logger: console,
+    on: {
+      proxyReq: (proxyReq, req, res) => {
+        proxyReq.setHeader('Host', '127.0.0.1');
+        if (req.headers.upgrade === 'websocket') {
           proxyReq.setHeader('Connection', 'Upgrade');
           proxyReq.setHeader('Upgrade', 'websocket');
-          proxyReq.setHeader('Host', '127.0.0.1');
-        },
-        proxyRes: (proxyRes, req, res) => {
-          // Ensure these headers are preserved in the response
-          if (req.headers.upgrade === 'websocket' || proxyRes.headers['upgrade'] === 'websocket') {
-            proxyRes.headers['connection'] = 'Upgrade';
-            proxyRes.headers['upgrade'] = 'websocket';
-          }
-        },
-        error: (err: any, req: any, res: any) => {
-          console.error(`Proxy error for port ${port}:`, err);
-          
-          // Handle socket errors which don't have res.status
-          if (res && typeof res.writeHead === 'function' && !res.headersSent) {
-            try {
-              res.writeHead(502);
-              res.end('Proxy Error');
-            } catch (e) {
-              // Socket might be closed
-            }
-          }
+        }
+      },
+      proxyReqWs: (proxyReq, req, socket, options, head) => {
+        proxyReq.setHeader('Connection', 'Upgrade');
+        proxyReq.setHeader('Upgrade', 'websocket');
+        proxyReq.setHeader('Host', '127.0.0.1');
+      },
+      proxyRes: (proxyRes, req, res) => {
+        if (req.headers.upgrade === 'websocket' || proxyRes.headers['upgrade'] === 'websocket') {
+          proxyRes.headers['connection'] = 'Upgrade';
+          proxyRes.headers['upgrade'] = 'websocket';
+        }
+      },
+      error: (err: any, req: any, res: any) => {
+        const portMatch = req.url?.match(/^\/proxy\/(\d+)/);
+        const port = portMatch ? portMatch[1] : 'unknown';
+        console.error(`Proxy error for port ${port}:`, err);
+        
+        if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+          try {
+            res.writeHead(502);
+            res.end('Proxy Error');
+          } catch (e) {}
         }
       }
-    })(req, res, next);
+    }
+  });
+
+  // Handle the upgrade event once for the whole server
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (req.url?.startsWith('/proxy/')) {
+      (proxy as any).upgrade(req, socket, head);
+    }
+  });
+
+  app.use('/proxy/:port', (req, res, next) => {
+    return proxy(req, res, next);
   });
 
   // VM Routes
