@@ -135,6 +135,21 @@ export async function registerRoutes(
           if (req.headers.upgrade === 'websocket') {
             proxyReq.setHeader('Connection', 'Upgrade');
             proxyReq.setHeader('Upgrade', 'websocket');
+            // Replit/Proxy specific: ensure the host header is set correctly for the internal target
+            proxyReq.setHeader('Host', '127.0.0.1');
+          }
+        },
+        proxyReqWs: (proxyReq, req, socket, options, head) => {
+          // Explicitly handle WebSocket upgrade requests
+          proxyReq.setHeader('Connection', 'Upgrade');
+          proxyReq.setHeader('Upgrade', 'websocket');
+          proxyReq.setHeader('Host', '127.0.0.1');
+        },
+        proxyRes: (proxyRes, req, res) => {
+          // In some environments, the proxy might incorrectly handle these headers
+          if (req.headers.upgrade === 'websocket') {
+            proxyRes.headers['connection'] = 'Upgrade';
+            proxyRes.headers['upgrade'] = 'websocket';
           }
         },
         error: (err: any, req: any, res: any) => {
