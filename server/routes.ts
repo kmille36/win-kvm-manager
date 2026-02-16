@@ -120,9 +120,12 @@ export async function registerRoutes(
 
   // Create a single proxy instance to handle all VM ports
   const proxy = createProxyMiddleware({
-    target: 'http://127.0.0.1', // Default, will be overridden by router
+    target: 'http://127.0.0.1', // Default base target
     router: (req) => {
-      const match = req.url?.match(/^\/proxy\/(\d+)/);
+      // The req.url here might be already rewritten or just the subpath
+      // We need to check req.originalUrl which contains the full path including /proxy/:port
+      const url = req.originalUrl || req.url || '';
+      const match = url.match(/^\/proxy\/(\d+)/);
       if (match) {
         return `http://127.0.0.1:${match[1]}`;
       }
@@ -132,7 +135,8 @@ export async function registerRoutes(
     ws: true,
     xfwd: true,
     pathRewrite: (path) => {
-      return path.replace(/^\/proxy\/\d+/, '');
+      // Clean up the path by removing the /proxy/:port prefix
+      return path.replace(/^\/proxy\/\d+/, '') || '/';
     },
     headers: {
       'Connection': 'Upgrade',
@@ -140,7 +144,7 @@ export async function registerRoutes(
     },
     logger: console,
     on: {
-      proxyReq: (proxyReq, req, res) => {
+      proxyReq: (proxyReq, req: any, res) => {
         proxyReq.setHeader('Host', '127.0.0.1');
         if (req.headers.upgrade === 'websocket') {
           proxyReq.setHeader('Connection', 'Upgrade');
@@ -159,7 +163,8 @@ export async function registerRoutes(
         }
       },
       error: (err: any, req: any, res: any) => {
-        const portMatch = req.url?.match(/^\/proxy\/(\d+)/);
+        const url = req.originalUrl || req.url || '';
+        const portMatch = url.match(/^\/proxy\/(\d+)/);
         const port = portMatch ? portMatch[1] : 'unknown';
         console.error(`Proxy error for port ${port}:`, err);
         
