@@ -88,6 +88,7 @@ export function CreateVmDialog() {
     ramSize: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
       const requested = val * 1024 * 1024 * 1024;
+      // Allow if requested <= free + current (but since this is create, current is 0)
       return requested <= hostStats.mem.free;
     }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
     diskSize: z.coerce.number().min(1).refine(val => {

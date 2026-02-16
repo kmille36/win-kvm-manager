@@ -94,13 +94,13 @@ export function CloneVmDialog({ vm, children }: CloneVmDialogProps) {
     }, { message: `Cannot exceed host CPU cores (${hostStats?.cpu.cores || 'loading...'})` }),
     ramSize: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
-      const requested = val * 1024 * 1024 * 1024;
-      return requested <= hostStats.mem.free;
+      const requestedBytes = val * 1024 * 1024 * 1024;
+      return requestedBytes <= hostStats.mem.free;
     }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
     diskSize: z.coerce.number().min(1).refine(val => {
       if (!hostStats) return true;
-      const requested = val * 1024 * 1024 * 1024;
-      return requested <= hostStats.disk.free;
+      const requestedBytes = val * 1024 * 1024 * 1024;
+      return requestedBytes <= hostStats.disk.free;
     }, { message: `Cannot exceed available host disk space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB free)` })
     .refine(val => {
       const currentDiskSize = parseToGB(vm.diskSize);

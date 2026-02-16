@@ -12,6 +12,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertVmSchema, type HostStatsResponse } from "@shared/schema";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+
+// Helper to parse sizes like "4G", "512M" to bytes
+const parseSizeToBytes = (size: string) => {
+  const match = size.match(/^(\d+)([GM])$/i);
+  if (!match) return 0;
+  const num = parseInt(match[1]);
+  const unit = match[2].toUpperCase();
+  return unit === 'G' ? num * 1024 * 1024 * 1024 : num * 1024 * 1024;
+};
+
 import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -111,15 +121,25 @@ export default function VmDetail() {
         return val <= hostStats.cpu.cores;
       }, { message: `Cannot exceed host CPU cores (${hostStats?.cpu.cores || 'loading...'})` }), 
       ramSize: z.coerce.number().refine(val => {
-        if (!hostStats) return true;
-        const requested = val * 1024 * 1024 * 1024;
-        return requested <= hostStats.mem.free;
-      }, { message: `Cannot exceed available host RAM (${Math.floor((hostStats?.mem.free || 0) / (1024 * 1024 * 1024))}GB free)` }),
+        if (!hostStats || !vm) return true;
+        const currentRamBytes = parseSizeToBytes(String(vm.ramSize));
+        const requestedBytes = val * 1024 * 1024 * 1024;
+        return requestedBytes <= (hostStats.mem.free + currentRamBytes);
+      }, { 
+        message: `Cannot exceed available host RAM (${Math.floor(((hostStats?.mem.free || 0) + parseSizeToBytes(String(vm?.ramSize || "0G"))) / (1024 * 1024 * 1024))}GB total available)` 
+      }),
       diskSize: z.coerce.number().refine(val => {
-        if (!vm) return true;
-        const currentSize = parseInt(String(vm.diskSize).replace("G", "")) || 0;
-        return val >= currentSize;
-      }, { message: `Disk size cannot be smaller than current size (${vm?.diskSize})` }),
+        if (!vm || !hostStats) return true;
+        const currentDiskBytes = parseSizeToBytes(String(vm.diskSize));
+        const requestedBytes = val * 1024 * 1024 * 1024;
+        // Disk can only be expanded, not shrunk easily in most KVM setups without risk
+        if (requestedBytes < currentDiskBytes) {
+          return false;
+        }
+        return (requestedBytes - currentDiskBytes) <= hostStats.disk.free;
+      }, { 
+        message: `Disk must be >= current size and within free space (${Math.floor((hostStats?.disk.free || 0) / (1024 * 1024 * 1024))}GB more available)` 
+      }),
       customCommand: z.string().nullable(),
       username: z.string().min(1, "Username is required"),
       password: z.string().min(1, "Password is required"),
@@ -276,7 +296,7 @@ export default function VmDetail() {
               <div className="aspect-video w-full relative flex items-center justify-center bg-black">
                 {isRunning ? (
                   <iframe 
-                    src={`http://${window.location.hostname}:${vm.webPort}`} 
+                    src={`/proxy/${vm.webPort}/`} 
                     className="w-full h-full border-0"
                     title="VM Console"
                     allow="clipboard-read; clipboard-write"

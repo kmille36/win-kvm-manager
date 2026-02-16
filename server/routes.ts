@@ -8,6 +8,7 @@ import si from "systeminformation";
 import { exec } from "child_process";
 import { promisify } from "util";
 import path, { join } from "path";
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const execAsync = promisify(exec);
 
@@ -60,31 +61,26 @@ export async function registerRoutes(
         si.networkInterfaces(),
         si.networkInterfaceDefault()
       ]);
-
       // Calculate "Available" memory (Active memory) which is a more accurate representation of "Used"
       // on Linux systems where free memory includes buffers/cache.
       // si.mem().active is often a better "Used" metric for users.
       const usedMemory = mem.active;
       const usedPercent = (usedMemory / mem.total) * 100;
-
       // Use the filesystem where the data is stored
       const projectRoot = process.cwd();
       const isWinKvmManagerDir = projectRoot.endsWith('win-kvm-manager');
       const storageDir = isWinKvmManagerDir ? join(projectRoot, 'storage') : join(projectRoot, 'win-kvm-manager', 'storage');
-      
+
       // Better detection of the correct mount point for the project/storage
       const mainDisk = disk.find(d => storageDir === d.mount) || 
                        disk.sort((a, b) => b.mount.length - a.mount.length)
                            .find(d => storageDir.startsWith(d.mount) || projectRoot.startsWith(d.mount)) || 
                        disk[0] || 
                        { size: 0, used: 0, available: 0, use: 0 };
-
       // Ensure we are in a valid working directory for subprocesses
       const execOptions = { cwd: projectRoot };
-
       // Get current network throughput
       const netThroughput = await si.networkStats();
-
       const stats: HostStatsResponse = {
         cpu: {
           cores: cpu.cores,
@@ -112,16 +108,36 @@ export async function registerRoutes(
         uptime: time.uptime,
         platform: `${os.platform} ${os.release}`,
       };
-
       // Get CPU load separately
       const load = await si.currentLoad();
       stats.cpu.usagePercent = load.currentLoad;
-
       res.json(stats);
     } catch (error) {
       console.error("Error fetching host stats:", error);
       res.status(500).json({ message: "Failed to fetch host stats" });
     }
+  });
+
+  // Proxy for VM Console
+  app.use('/proxy/:port', (req, res, next) => {
+    const port = req.params.port;
+    return createProxyMiddleware({
+      target: `http://127.0.0.1:${port}`,
+      changeOrigin: true,
+      ws: true,
+      pathRewrite: {
+        [`^/proxy/${port}`]: '',
+      },
+      logger: console,
+      on: {
+        error: (err: any, req: any, res: any) => {
+          console.error(`Proxy error for port ${port}:`, err);
+          if (!res.headersSent) {
+            res.status(500).send('Proxy error');
+          }
+        }
+      }
+    })(req, res, next);
   });
 
   // VM Routes
@@ -183,8 +199,9 @@ export async function registerRoutes(
       // Memory validation: ensure RAM does not exceed host RAM
       if (input.ramSize) {
         const requestedRam = parseToBytes(input.ramSize);
-        if (requestedRam > mem.free) {
-          return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024 / 1024)}GB free)` });
+        // Use mem.available instead of mem.free as it's more accurate (includes cache)
+        if (requestedRam > mem.available) {
+          return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.available / 1024 / 1024 / 1024)}GB free)` });
         }
       }
 
@@ -297,26 +314,30 @@ export async function registerRoutes(
           return res.status(400).json({ message: `Insufficient CPU cores (available: ${cpu.cores})` });
         }
         
-        // When updating, we should technically account for the resources already assigned to this VM 
-        // if the VM is running, but since the container is stopped/removed during update, 
-        // the resources will be "freed" anyway.
+        // When updating, we should account for the resources already assigned to this VM 
+        // since the container is stopped/removed during update.
         if (input.ramSize) {
+          const currentRamBytes = parseToBytes(oldVm.ramSize);
           const requestedRam = parseToBytes(input.ramSize);
-          if (requestedRam > mem.free) {
-            return res.status(400).json({ message: `Insufficient RAM (available: ${Math.floor(mem.free / 1024 / 1024 / 1024)}GB free)` });
+          // Total available = Host Available RAM + RAM currently held by this VM
+          if (requestedRam > (mem.available + currentRamBytes)) {
+            const totalAvailableGb = Math.floor((mem.available + currentRamBytes) / 1024 / 1024 / 1024);
+            return res.status(400).json({ message: `Insufficient RAM (total available for this VM: ${totalAvailableGb}GB)` });
           }
         }
 
         // Disk size validation for update: check if smaller than current size
         if (input.diskSize) {
-          const currentSize = parseToBytes(oldVm.diskSize);
+          const currentDiskBytes = parseToBytes(oldVm.diskSize);
           const requestedSize = parseToBytes(input.diskSize);
-          if (requestedSize < currentSize) {
+          if (requestedSize < currentDiskBytes) {
             return res.status(400).json({ message: `Disk size cannot be smaller than current size (${oldVm.diskSize})` });
           }
           
-          if (requestedSize > mainDisk.available) {
-            return res.status(400).json({ message: `Insufficient disk space (available: ${Math.floor(mainDisk.available / 1024 / 1024 / 1024)}GB free)` });
+          // Only check additional space if expanding
+          const additionalNeeded = requestedSize - currentDiskBytes;
+          if (additionalNeeded > mainDisk.available) {
+            return res.status(400).json({ message: `Insufficient disk space for expansion (available: ${Math.floor(mainDisk.available / 1024 / 1024 / 1024)}GB free)` });
           }
         }
 
