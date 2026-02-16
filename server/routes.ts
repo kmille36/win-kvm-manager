@@ -125,18 +125,22 @@ export async function registerRoutes(
       target: `http://127.0.0.1:${port}`,
       changeOrigin: true,
       ws: true,
+      xfwd: true,
       pathRewrite: {
         [`^/proxy/${port}`]: '',
+      },
+      headers: {
+        'Connection': 'Upgrade',
+        'Upgrade': 'websocket'
       },
       logger: console,
       on: {
         proxyReq: (proxyReq, req, res) => {
-          // Fix for "Invalid frame header" issue by ensuring connection headers are handled correctly
+          // Replit/Proxy specific: ensure the host header is set correctly for the internal target
+          proxyReq.setHeader('Host', '127.0.0.1');
           if (req.headers.upgrade === 'websocket') {
             proxyReq.setHeader('Connection', 'Upgrade');
             proxyReq.setHeader('Upgrade', 'websocket');
-            // Replit/Proxy specific: ensure the host header is set correctly for the internal target
-            proxyReq.setHeader('Host', '127.0.0.1');
           }
         },
         proxyReqWs: (proxyReq, req, socket, options, head) => {
@@ -146,21 +150,22 @@ export async function registerRoutes(
           proxyReq.setHeader('Host', '127.0.0.1');
         },
         proxyRes: (proxyRes, req, res) => {
-          // In some environments, the proxy might incorrectly handle these headers
-          if (req.headers.upgrade === 'websocket') {
+          // Ensure these headers are preserved in the response
+          if (req.headers.upgrade === 'websocket' || proxyRes.headers['upgrade'] === 'websocket') {
             proxyRes.headers['connection'] = 'Upgrade';
             proxyRes.headers['upgrade'] = 'websocket';
           }
         },
         error: (err: any, req: any, res: any) => {
           console.error(`Proxy error for port ${port}:`, err);
-          if (!res.headersSent) {
-            // Check if res.status is a function before calling it
-            if (typeof res.status === 'function') {
-              res.status(500).send('Proxy error');
-            } else if (res.writeHead) {
-              res.writeHead(500);
-              res.end('Proxy error');
+          
+          // Handle socket errors which don't have res.status
+          if (res && typeof res.writeHead === 'function' && !res.headersSent) {
+            try {
+              res.writeHead(502);
+              res.end('Proxy Error');
+            } catch (e) {
+              // Socket might be closed
             }
           }
         }
